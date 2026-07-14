@@ -65,7 +65,7 @@ case $answer in
         if GH_HOST=github.com GH_PROMPT_DISABLED=1 \
                 gh api --hostname github.com --method PUT \
                     "user/starred/$repository" >/dev/null 2>&1; then
-            printf 'Thank you — %s is now starred.\n' "$repository"
+            printf 'Thank you! %s is now starred.\n' "$repository"
         else
             printf 'ENCORE: GitHub could not add the star; the installation is still complete.\n' >&2
         fi

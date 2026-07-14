@@ -436,12 +436,12 @@ choose_dpi()
     say "Recommendation: ${BOLD}${dpi_recommendation} DPI${RESET} because $dpi_reason."
     say 'If different monitors use different scaling, choose the scale used by the monitor where Live normally opens.'
     say
-    say '  1) 100%  —  96 DPI'
-    say '  2) 125%  — 120 DPI'
-    say '  3) 150%  — 144 DPI'
-    say '  4) 175%  — 168 DPI'
-    say '  5) 200%  — 192 DPI'
-    say '  6) 250%  — 240 DPI'
+    say '  1) 100%  :  96 DPI'
+    say '  2) 125%  : 120 DPI'
+    say '  3) 150%  : 144 DPI'
+    say '  4) 175%  : 168 DPI'
+    say '  5) 200%  : 192 DPI'
+    say '  6) 250%  : 240 DPI'
     say '  7) Custom DPI'
 
     while true; do
@@ -510,9 +510,9 @@ choose_jobs()
     say "This computer reports ${detected_cpus} logical CPUs and about ${detected_memory_gib} GiB of memory."
     say 'Building Wine can make the fans spin up. Balanced mode is the safe default.'
     say
-    say '  1) Quiet     — 1 build job (slowest, least heat)'
-    say "  2) Balanced  — $balanced_jobs build jobs (recommended)"
-    say "  3) Fast       — $detected_fast_jobs build jobs (more CPU and fan noise)"
+    say '  1) Quiet     : 1 build job (slowest, least heat)'
+    say "  2) Balanced  : $balanced_jobs build jobs (recommended)"
+    say "  3) Fast      : $detected_fast_jobs build jobs (more CPU and fan noise)"
     say '  4) Custom'
     while true; do
         read -r -p 'Choose build mode [2]: ' choice

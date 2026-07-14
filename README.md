@@ -7,7 +7,7 @@
 
 <h1 align="center">ENCORE</h1>
 
-ENCORE is a guided Wine compatibility setup for running Ableton Live 12 Suite on Linux. It is maintained by `wowitsjack` and focuses on making the difficult parts—building the patched Wine tree, configuring HiDPI, native file access, VST3 hosting, audio, drag-and-drop, themed menus, and Learn View—approachable from one command.
+ENCORE is a guided Wine compatibility setup for running Ableton Live 12 Suite on Linux. It is maintained by `wowitsjack` and focuses on making the difficult parts, including building the patched Wine tree, configuring HiDPI, native file access, VST3 hosting, audio, drag-and-drop, themed menus, and Learn View, approachable from one command.
 
 > [!WARNING]
 > ENCORE is experimental and is not affiliated with Ableton or Wine. Back up important Live Sets and prefixes before testing it.
@@ -105,11 +105,11 @@ ENCORE refuses to modify a non-empty prefix it does not recognize. Inspect the f
 
 The wizard remembers the selected prefix, Wine, and Ableton paths in `.encore/runtime.conf`, so later installer runs and the bare launcher keep working with custom locations and with `--no-desktop`. Environment variables and command-line options override those saved choices. The launcher understands:
 
-- `ENCORE_PREFIX` — Wine prefix; defaults to `ableton-prefix`.
-- `ENCORE_WINE` — existing ENCORE Wine executable.
-- `ENCORE_ABLETON` — Ableton executable path inside the prefix.
-- `ENCORE_CPU_TOPOLOGY` — runtime CPU topology override. The default is selected from the Linux affinity/cpuset and capped at eight logical CPUs.
-- `ENCORE_WEBVIEW2_FLAGS` — complete WebView2 flag override. Set it to an empty value to disable launcher-supplied flags.
+- `ENCORE_PREFIX`: Wine prefix; defaults to `ableton-prefix`.
+- `ENCORE_WINE`: existing ENCORE Wine executable.
+- `ENCORE_ABLETON`: Ableton executable path inside the prefix.
+- `ENCORE_CPU_TOPOLOGY`: runtime CPU topology override. The default is selected from the Linux affinity/cpuset and capped at eight logical CPUs.
+- `ENCORE_WEBVIEW2_FLAGS`: complete WebView2 flag override. Set it to an empty value to disable launcher-supplied flags.
 
 Live's **Settings > Plug-ins > VST3 Custom Folder > Browse** control uses the native desktop folder picker. ENCORE exposes the selected host path to Live and its plug-in scanner, including folders outside your home directory and folders on mounted drives. No symlink or VST path variable is required.
 
