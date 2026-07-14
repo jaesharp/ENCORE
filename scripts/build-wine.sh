@@ -174,7 +174,7 @@ for artifact in \
     "$WINE_BUILD/dlls/kernel32/i386-windows/kernel32.dll" \
     "$WINE_BUILD/dlls/dxgi/i386-windows/dxgi.dll" \
     "$WINE_BUILD/programs/cmd/i386-windows/cmd.exe" \
-    "$WINE_BUILD/programs/wineboot/i386-windows/wineboot.exe"
+    "$WINE_BUILD/programs/wineboot/x86_64-windows/wineboot.exe"
 do
     [ -f "$artifact" ] || die "build completed without $artifact"
 done

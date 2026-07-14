@@ -50,7 +50,7 @@ validate_runtime()
     [ -f "$root/lib/wine/i386-windows/kernel32.dll" ] || return 1
     [ -f "$root/lib/wine/i386-windows/dxgi.dll" ] || return 1
     [ -f "$root/lib/wine/i386-windows/cmd.exe" ] || return 1
-    [ -f "$root/lib/wine/i386-windows/wineboot.exe" ] || return 1
+    [ -f "$root/lib/wine/x86_64-windows/wineboot.exe" ] || return 1
     [ ! -e "$root/lib/wine/i386-unix" ] || return 1
     [ -f "$root/share/wine/wine.inf" ] || return 1
     [ -f "$manifest" ] || return 1

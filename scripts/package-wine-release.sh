@@ -92,7 +92,7 @@ for required in \
     lib/wine/i386-windows/kernel32.dll \
     lib/wine/i386-windows/dxgi.dll \
     lib/wine/i386-windows/cmd.exe \
-    lib/wine/i386-windows/wineboot.exe \
+    lib/wine/x86_64-windows/wineboot.exe \
     share/wine/wine.inf
 do
     [ -e "$runtime_dir/$required" ] || die "runtime is missing $required"
