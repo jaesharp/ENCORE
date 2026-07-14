@@ -33,6 +33,7 @@ fi
 
 mkdir -p "$WINE_BUILD" "$PROJECT_ROOT/.tmp"
 export TMPDIR="$PROJECT_ROOT/.tmp"
+export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$WINE_SOURCE_DATE_EPOCH}
 encore_cppflags="-I$PROJECT_ROOT/packaging/uapi${CPPFLAGS:+ $CPPFLAGS}"
 
 say "Configuring Wine $WINE_REVISION in $WINE_BUILD"

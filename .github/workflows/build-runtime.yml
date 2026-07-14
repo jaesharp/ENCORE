@@ -22,6 +22,7 @@ jobs:
       image: ubuntu:22.04
     timeout-minutes: 240
     env:
+      DEBIAN_FRONTEND: noninteractive
       JOBS: "4"
       WINE_INSTALL_PREFIX: /opt/encore-wine
       SOURCE_DATE_EPOCH: "1783719732"
@@ -102,6 +103,8 @@ jobs:
     needs: build
     runs-on: ubuntu-22.04
     timeout-minutes: 90
+    env:
+      DEBIAN_FRONTEND: noninteractive
     strategy:
       fail-fast: false
       matrix:

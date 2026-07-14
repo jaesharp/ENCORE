@@ -2,10 +2,42 @@
 
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/common.sh"
 
+require_command awk
+require_command sha256sum
+[ -f "$WINE_PATCH" ] || die "missing patch: $WINE_PATCH"
+
+corresponding_source_marker="$WINE_SOURCE/.encore-corresponding-source"
+if [ -e "$corresponding_source_marker" ] || [ -L "$corresponding_source_marker" ]; then
+    [ -f "$corresponding_source_marker" ] && [ -r "$corresponding_source_marker" ] ||
+        die "invalid corresponding-source marker: $corresponding_source_marker"
+    marker_header=
+    marker_revision=
+    marker_patch=
+    marker_extra=
+    marker_valid=1
+    {
+        IFS= read -r marker_header || marker_valid=0
+        IFS= read -r marker_revision || marker_valid=0
+        IFS= read -r marker_patch || marker_valid=0
+        if IFS= read -r marker_extra || [ -n "$marker_extra" ]; then
+            marker_valid=0
+        fi
+    } <"$corresponding_source_marker"
+    expected_patch_sha256=$(sha256sum "$WINE_PATCH" | awk '{print $1}')
+    [ "$marker_valid" = 1 ] &&
+        [ "$marker_header" = ENCORE_CORRESPONDING_WINE_SOURCE_V1 ] &&
+        [ "$marker_revision" = "wine_revision=$WINE_REVISION" ] &&
+        [ "$marker_patch" = "patch_sha256=$expected_patch_sha256" ] ||
+        die "the corresponding-source marker does not match this ENCORE release"
+    [ -x "$WINE_SOURCE/configure" ] && [ -f "$WINE_SOURCE/configure.ac" ] ||
+        die "the corresponding Wine source tree is incomplete: $WINE_SOURCE"
+    say "Using packaged corresponding Wine source at $WINE_SOURCE"
+    exit 0
+fi
+
 require_command git
 require_command mktemp
 require_command rm
-[ -f "$WINE_PATCH" ] || die "missing patch: $WINE_PATCH"
 
 if [ ! -e "$WINE_SOURCE" ]; then
     source_parent=$(dirname -- "$WINE_SOURCE")

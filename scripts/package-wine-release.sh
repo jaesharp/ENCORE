@@ -17,7 +17,7 @@ esac
 [ "$release_version" = "$ENCORE_RELEASE_VERSION" ] ||
     die "release version must match $ENCORE_RELEASE_VERSION"
 
-for command in awk cp find git grep install make mktemp readelf sed sha256sum \
+for command in awk cp find grep install make mktemp readelf sed sha256sum \
     sort strip tail tar xz; do
     require_command "$command"
 done
@@ -40,7 +40,7 @@ do
 done
 
 patch_sha256=$(sha256sum "$WINE_PATCH" | awk '{print $1}')
-source_date_epoch=${SOURCE_DATE_EPOCH:-$(git -C "$WINE_SOURCE" show -s --format=%ct HEAD)}
+source_date_epoch=${SOURCE_DATE_EPOCH:-$WINE_SOURCE_DATE_EPOCH}
 case $source_date_epoch in
     ''|*[!0-9]*) die "invalid SOURCE_DATE_EPOCH: $source_date_epoch" ;;
 esac
@@ -51,9 +51,16 @@ stage_dir="$work_dir/stage"
 runtime_dir="$work_dir/encore-wine"
 source_name=encore-wine-11.13-$ENCORE_RUNTIME_REVISION-source
 source_dir="$work_dir/$source_name"
+source_wine_dir="$source_dir/wine"
 bundle_name=${ENCORE_BUNDLE_ASSET%.tar.xz}
 bundle_dir="$work_dir/$bundle_name"
-mkdir -p "$stage_dir" "$runtime_dir" "$source_dir" "$bundle_dir" "$output_dir"
+mkdir -p "$stage_dir" "$runtime_dir" "$source_wine_dir" "$bundle_dir" "$output_dir"
+build_turnkey_bundle=0
+if [ -f "$PROJECT_ROOT/install.sh" ] &&
+   git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    require_command git
+    build_turnkey_bundle=1
+fi
 
 say "Staging the installed Wine runtime"
 make -C "$WINE_BUILD" install-lib DESTDIR="$stage_dir"
@@ -86,6 +93,11 @@ mkdir -p "$runtime_dir/licenses/wine"
 for license in LICENSE COPYING.LIB NOTICES.md; do
     install -m 0644 "$WINE_SOURCE/$license" "$runtime_dir/licenses/wine/$license"
 done
+mkdir -p "$runtime_dir/licenses/linux-uapi"
+cp -a "$PROJECT_ROOT/packaging/uapi/LICENSES" \
+    "$runtime_dir/licenses/linux-uapi/"
+install -m 0644 "$PROJECT_ROOT/packaging/uapi/README.md" \
+    "$runtime_dir/licenses/linux-uapi/README.md"
 
 glibc_versions="$work_dir/glibc-versions"
 : >"$glibc_versions"
@@ -133,32 +145,55 @@ Source archive: $ENCORE_SOURCE_ASSET
 EOF
 
 say "Preparing complete corresponding Wine source"
-tar -C "$WINE_SOURCE" --exclude=.git -cf - . | tar -C "$source_dir" -xf -
-mkdir -p "$source_dir/ENCORE-BUILD/scripts" "$source_dir/ENCORE-BUILD/patches" \
-    "$source_dir/ENCORE-BUILD/packaging" "$source_dir/ENCORE-BUILD/.github/workflows"
-install -m 0644 "$PROJECT_ROOT/README.md" "$source_dir/ENCORE-BUILD/README.md"
-install -m 0644 "$WINE_PATCH" "$source_dir/ENCORE-BUILD/patches/encore-wine.patch"
-cp -a "$PROJECT_ROOT/packaging/uapi" "$source_dir/ENCORE-BUILD/packaging/"
+tar -C "$WINE_SOURCE" --exclude=.git -cf - . | tar -C "$source_wine_dir" -xf -
+cat >"$source_wine_dir/.encore-corresponding-source" <<EOF
+ENCORE_CORRESPONDING_WINE_SOURCE_V1
+wine_revision=$WINE_REVISION
+patch_sha256=$patch_sha256
+EOF
+mkdir -p "$source_dir/scripts" "$source_dir/patches" \
+    "$source_dir/packaging" "$source_dir/.github/workflows"
+install -m 0644 "$PROJECT_ROOT/README.md" "$source_dir/ENCORE-README.md"
+install -m 0644 "$WINE_PATCH" "$source_dir/patches/encore-wine.patch"
+cp -a "$PROJECT_ROOT/packaging/uapi" "$source_dir/packaging/"
 for script in common.sh bootstrap-wine.sh build-wine.sh prepare-deps.sh \
     install-dependencies.sh package-wine-release.sh
 do
-    install -m 0755 "$SCRIPT_DIR/$script" "$source_dir/ENCORE-BUILD/scripts/$script"
+    install -m 0755 "$SCRIPT_DIR/$script" "$source_dir/scripts/$script"
 done
 install -m 0644 "$PROJECT_ROOT/.github/workflows/build-runtime.yml" \
-    "$source_dir/ENCORE-BUILD/.github/workflows/build-runtime.yml"
+    "$source_dir/.github/workflows/build-runtime.yml"
+cat >"$source_dir/README.md" <<EOF
+# ENCORE Wine $release_version corresponding source
+
+This archive contains the complete patched Wine source used for the ENCORE
+$release_version binary release, plus the scripts and build configuration used
+to compile and package it.
+
+On a supported distribution, run:
+
+    ./scripts/install-dependencies.sh --install build
+    ./scripts/build-wine.sh
+    ./scripts/package-wine-release.sh $release_version
+
+The source is already patched. The build bootstrap verifies its release marker
+and does not need Wine's Git history.
+EOF
 cat >"$source_dir/ENCORE-CHANGES.txt" <<EOF
 This is the complete corresponding source for ENCORE Wine $release_version.
 
 Upstream Wine revision: $WINE_REVISION
 ENCORE patch SHA-256: $patch_sha256
-Build instructions and the exact patch are in ENCORE-BUILD/.
+Build instructions, scripts, and the exact patch are in this archive.
 The ENCORE patch records the full modified-file delta against the revision above.
 EOF
 
-say "Preparing the turnkey ENCORE bundle"
-git -C "$PROJECT_ROOT" archive --format=tar HEAD | tar -C "$bundle_dir" -xf -
-mkdir -p "$bundle_dir/runtime"
-cp -a "$runtime_dir" "$bundle_dir/runtime/wine"
+if [ "$build_turnkey_bundle" -eq 1 ]; then
+    say "Preparing the turnkey ENCORE bundle"
+    git -C "$PROJECT_ROOT" archive --format=tar HEAD | tar -C "$bundle_dir" -xf -
+    mkdir -p "$bundle_dir/runtime"
+    cp -a "$runtime_dir" "$bundle_dir/runtime/wine"
+fi
 
 archive_tree()
 {
@@ -177,8 +212,15 @@ source_archive="$output_dir/$ENCORE_SOURCE_ASSET"
 bundle_archive="$output_dir/$ENCORE_BUNDLE_ASSET"
 say "Compressing release archives"
 archive_tree "$runtime_dir" "$runtime_archive"
+runtime_sha256=$(sha256sum "$runtime_archive" | awk '{print $1}')
+if [ -n "$ENCORE_RUNTIME_SHA256" ] &&
+   [ "$runtime_sha256" != "$ENCORE_RUNTIME_SHA256" ]; then
+    die "runtime archive SHA-256 $runtime_sha256 does not match the pinned release checksum $ENCORE_RUNTIME_SHA256"
+fi
 archive_tree "$source_dir" "$source_archive"
-archive_tree "$bundle_dir" "$bundle_archive"
+if [ "$build_turnkey_bundle" -eq 1 ]; then
+    archive_tree "$bundle_dir" "$bundle_archive"
+fi
 
 relocation_dir="$work_dir/path with spaces/relocated"
 mkdir -p "$relocation_dir"
@@ -186,25 +228,39 @@ tar -xJf "$runtime_archive" -C "$relocation_dir"
 [ "$("$relocation_dir/encore-wine/bin/wine" --version)" = wine-11.13 ] ||
     die "relocated runtime smoke test failed"
 
-bundle_test_dir="$work_dir/bundle test"
-mkdir -p "$bundle_test_dir"
-tar -xJf "$bundle_archive" -C "$bundle_test_dir"
-bundle_root="$bundle_test_dir/$bundle_name"
-[ "$("$bundle_root/runtime/wine/bin/wine" --version)" = wine-11.13 ] ||
-    die "turnkey bundle runtime smoke test failed"
-ENCORE_RUNTIME_ROOT="$bundle_root/runtime/wine" \
-    "$bundle_root/scripts/download-wine-runtime.sh" >/dev/null
-ENCORE_DRY_RUN=1 "$bundle_root/scripts/run-ableton.sh" |
-    grep -Fqx "WINE=$bundle_root/runtime/wine/bin/wine" ||
-    die "turnkey bundle launcher is not using its bundled runtime"
+if [ "$build_turnkey_bundle" -eq 1 ]; then
+    bundle_test_dir="$work_dir/bundle test"
+    mkdir -p "$bundle_test_dir"
+    tar -xJf "$bundle_archive" -C "$bundle_test_dir"
+    bundle_root="$bundle_test_dir/$bundle_name"
+    [ "$("$bundle_root/runtime/wine/bin/wine" --version)" = wine-11.13 ] ||
+        die "turnkey bundle runtime smoke test failed"
+    ENCORE_RUNTIME_ROOT="$bundle_root/runtime/wine" \
+        "$bundle_root/scripts/download-wine-runtime.sh" >/dev/null
+    ENCORE_DRY_RUN=1 "$bundle_root/scripts/run-ableton.sh" |
+        grep -Fqx "WINE=$bundle_root/runtime/wine/bin/wine" ||
+        die "turnkey bundle launcher is not using its bundled runtime"
+fi
+
+source_test_dir="$work_dir/source test"
+mkdir -p "$source_test_dir"
+tar -xJf "$source_archive" -C "$source_test_dir"
+source_root="$source_test_dir/$source_name"
+WINE_SOURCE="$source_root/wine" "$source_root/scripts/bootstrap-wine.sh" |
+    grep -Fqx "Using packaged corresponding Wine source at $source_root/wine" ||
+    die "corresponding-source archive bootstrap test failed"
 
 (
     cd "$output_dir"
-    sha256sum "$ENCORE_BUNDLE_ASSET" "$ENCORE_RUNTIME_ASSET" \
-        "$ENCORE_SOURCE_ASSET" >SHA256SUMS
+    if [ "$build_turnkey_bundle" -eq 1 ]; then
+        sha256sum "$ENCORE_BUNDLE_ASSET" "$ENCORE_RUNTIME_ASSET" \
+            "$ENCORE_SOURCE_ASSET" >SHA256SUMS
+    else
+        sha256sum "$ENCORE_RUNTIME_ASSET" "$ENCORE_SOURCE_ASSET" >SHA256SUMS
+    fi
 )
 
-say "Turnkey bundle:  $bundle_archive"
+[ "$build_turnkey_bundle" -eq 0 ] || say "Turnkey bundle:  $bundle_archive"
 say "Runtime archive: $runtime_archive"
 say "Source archive:  $source_archive"
 say "Checksums:       $output_dir/SHA256SUMS"
