@@ -51,18 +51,22 @@ You need:
 > [!IMPORTANT]
 > The downloaded Ableton installer is not enough. Install Live on Windows first, or extract your licensed installed copy another way, then copy the complete outer `Live 12 Suite` folder to Linux. See [the required folder layout](#supplying-ableton-live).
 
-### Install in four steps
+### Install in five steps
 
 1. Click the **Download ENCORE v0.1.0** button above.
 2. Open your Downloads folder and extract the `.tar.xz` archive.
-3. Open the extracted `ENCORE-v0.1.0-linux-x86_64` folder, right-click an empty area, and choose **Open in Terminal**.
-4. Paste this command and press Enter:
+3. Move the extracted `ENCORE-v0.1.0-linux-x86_64` folder somewhere permanent and writable. A good choice is an `Applications` folder inside your Home folder; create it if it does not exist.
+4. Open ENCORE in its permanent location, right-click an empty area, and choose **Open in Terminal**.
+5. Paste this command and press Enter:
 
 ```sh
 ./install.sh
 ```
 
-If your file manager does not offer **Open in Terminal**, open the Terminal app, type `cd ` with a space after it, drag the extracted ENCORE folder into the terminal, press Enter, then run `./install.sh`.
+> [!IMPORTANT]
+> The extracted ENCORE folder is the application, not a disposable installer. Keep it in that permanent location after setup. Moving or deleting it later breaks the Wine runtime, Ableton prefix, logs, and application-menu entry.
+
+If your file manager does not offer **Open in Terminal**, open the Terminal app, type `cd ` with a space after it, drag the permanent ENCORE folder into the terminal, press Enter, then run `./install.sh`.
 
 The friendly setup wizard checks your system, shows any package command before asking for sudo, asks you to select the installed Ableton folder, recommends a display scale, creates an application-menu entry, and can launch Live when setup is finished.
 
