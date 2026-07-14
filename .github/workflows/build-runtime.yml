@@ -26,8 +26,6 @@ jobs:
       JOBS: "4"
       WINE_INSTALL_PREFIX: /opt/encore-wine
       SOURCE_DATE_EPOCH: "1783719732"
-      CFLAGS: -O2 -pipe -ffile-prefix-map=${{ github.workspace }}=. -fdebug-prefix-map=${{ github.workspace }}=.
-      CXXFLAGS: -O2 -pipe -ffile-prefix-map=${{ github.workspace }}=. -fdebug-prefix-map=${{ github.workspace }}=.
 
     steps:
       - name: Bootstrap the minimal build container

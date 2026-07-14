@@ -34,6 +34,9 @@ fi
 mkdir -p "$WINE_BUILD" "$PROJECT_ROOT/.tmp"
 export TMPDIR="$PROJECT_ROOT/.tmp"
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$WINE_SOURCE_DATE_EPOCH}
+encore_prefix_maps="-ffile-prefix-map=$PROJECT_ROOT=. -fdebug-prefix-map=$PROJECT_ROOT=. -fmacro-prefix-map=$PROJECT_ROOT=."
+export CFLAGS="${CFLAGS:--O2 -pipe} $encore_prefix_maps"
+export CXXFLAGS="${CXXFLAGS:--O2 -pipe} $encore_prefix_maps"
 encore_cppflags="-I$PROJECT_ROOT/packaging/uapi${CPPFLAGS:+ $CPPFLAGS}"
 
 say "Configuring Wine $WINE_REVISION in $WINE_BUILD"

@@ -115,7 +115,10 @@ if [ "$(printf '%s\n' "$glibc_max" 2.35 | sort -V | tail -n 1)" != 2.35 ]; then
     die "runtime requires glibc $glibc_max, newer than the 2.35 release baseline"
 fi
 
-if grep -aR -l -F "$PROJECT_ROOT" "$runtime_dir" >/dev/null 2>&1; then
+embedded_path_files=$(grep -aR -l -F "$PROJECT_ROOT" "$runtime_dir" 2>/dev/null || true)
+if [ -n "$embedded_path_files" ]; then
+    printf '%s\n' "Runtime files containing the build path:" >&2
+    printf '%s\n' "$embedded_path_files" | sed "s|^$runtime_dir/|  |" >&2
     die "runtime contains an absolute build path: $PROJECT_ROOT"
 fi
 if find "$runtime_dir" -type f \( -name '*.a' -o -name '*.o' -o -name '*.la' \) -print -quit |
