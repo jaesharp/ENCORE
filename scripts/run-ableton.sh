@@ -5,7 +5,9 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 . "$ROOT/scripts/load-runtime-config.sh"
 PREFIX=${ENCORE_PREFIX:-"$ROOT/ableton-prefix"}
-WINE=${ENCORE_WINE:-"$ROOT/build/wine64/wine"}
+default_wine="$ROOT/runtime/wine/bin/wine"
+[ -x "$default_wine" ] || default_wine="$ROOT/build/wine64/wine"
+WINE=${ENCORE_WINE:-"$default_wine"}
 ABLETON=${ENCORE_ABLETON:-"$PREFIX/drive_c/ProgramData/Ableton/Live 12 Suite/Program/Ableton Live 12 Suite.exe"}
 
 default_webview_flags='--use-gl=angle --use-angle=swiftshader --disable-gpu-compositing --disable-gpu-rasterization --disable-direct-composition --disable-features=ForceSWDCompWhenDCompFallbackRequired --edge-webview-foreground-boost-opt-out --no-sandbox'

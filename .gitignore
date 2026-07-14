@@ -4,6 +4,8 @@
 # Upstream source checkout, build products, and downloaded dependencies
 /wine/
 /build/
+/runtime/
+/dist/
 /deps/
 /.tmp/
 

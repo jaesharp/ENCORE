@@ -57,11 +57,21 @@ fi
 
 case $manager in
     apt)
+        gnutls_runtime=libgnutls30
+        alsa_runtime=libasound2
+        if command -v apt-cache >/dev/null 2>&1; then
+            apt-cache show libgnutls30t64 >/dev/null 2>&1 && gnutls_runtime=libgnutls30t64
+            apt-cache show libasound2t64 >/dev/null 2>&1 && alsa_runtime=libasound2t64
+        fi
         runtime_packages=(
-            fontconfig fonts-liberation python3 python3-fonttools desktop-file-utils
+            ca-certificates curl xz-utils fontconfig fonts-liberation python3
+            python3-fonttools desktop-file-utils libdbus-1-3 libfreetype6
+            libfontconfig1 libgl1 libvulkan1 libx11-6 libxcomposite1
+            libxcursor1 libxext6 libxfixes3 libxi6 libxinerama1 libxrandr2
+            libxrender1 libpulse0 libudev1 "$alsa_runtime" "$gnutls_runtime"
             xwayland xdg-desktop-portal gstreamer1.0-tools
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good
-            gstreamer1.0-plugins-bad gstreamer1.0-libav
+            gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
         )
         if [[ $desktop == *KDE* ]]; then
             runtime_packages+=(xdg-desktop-portal-kde)
@@ -82,8 +92,11 @@ case $manager in
         ;;
     dnf)
         runtime_packages=(
-            fontconfig liberation-sans-fonts python3 python3-fonttools
-            desktop-file-utils xorg-x11-server-Xwayland xdg-desktop-portal
+            ca-certificates curl xz fontconfig liberation-sans-fonts python3
+            python3-fonttools desktop-file-utils dbus-libs freetype libglvnd-glx
+            vulkan-loader libX11 libXcomposite libXcursor libXext libXfixes
+            libXi libXinerama libXrandr libXrender pulseaudio-libs systemd-libs
+            alsa-lib gnutls xorg-x11-server-Xwayland xdg-desktop-portal
             gstreamer1 gstreamer1-plugin-libav
             gstreamer1-plugins-base gstreamer1-plugins-good
             gstreamer1-plugins-bad-free gstreamer1-plugins-ugly-free
@@ -110,9 +123,12 @@ case $manager in
         ;;
     pacman)
         runtime_packages=(
-            fontconfig ttf-liberation python python-fonttools desktop-file-utils
-            xorg-xwayland xdg-desktop-portal gstreamer gst-plugins-base
-            gst-plugins-good gst-plugins-bad gst-libav
+            ca-certificates curl xz fontconfig ttf-liberation python
+            python-fonttools desktop-file-utils dbus freetype2 libglvnd
+            vulkan-icd-loader libx11 libxcomposite libxcursor libxext libxfixes
+            libxi libxinerama libxrandr libxrender libpulse systemd-libs
+            alsa-lib gnutls xorg-xwayland xdg-desktop-portal gstreamer gst-plugins-base
+            gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav
         )
         if [[ $desktop == *KDE* ]]; then
             runtime_packages+=(xdg-desktop-portal-kde)
@@ -202,7 +218,8 @@ check_requirements()
     local file_chooser_portal=
     local runtime_commands=(
         python3 fc-match desktop-file-validate Xwayland gst-inspect-1.0
-        awk cmp cp flock grep mkdir mktemp readlink rm sed tr
+        awk cmp cp curl dirname flock getconf grep head mkdir mktemp mv readlink
+        rm rmdir sed sha256sum sort tail tar tr uname xz
     )
     local build_commands=(git gcc g++ make flex bison pkg-config awk grep sed nice readlink sha256sum)
 

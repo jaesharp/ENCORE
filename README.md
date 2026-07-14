@@ -7,7 +7,7 @@
 
 <h1 align="center">ENCORE</h1>
 
-ENCORE is a guided Wine compatibility setup for running Ableton Live 12 Suite on Linux. It is maintained by `wowitsjack` and focuses on making the difficult parts, including building the patched Wine tree, configuring HiDPI, native file access, VST3 hosting, audio, drag-and-drop, themed menus, and Learn View, approachable from one command.
+ENCORE is a guided Wine compatibility setup for running Ableton Live 12 Suite on Linux. It is maintained by `wowitsjack` and focuses on making the difficult parts, including installing a verified patched Wine runtime, configuring HiDPI, native file access, VST3 hosting, audio, drag-and-drop, themed menus, and Learn View, approachable from one command.
 
 > [!WARNING]
 > ENCORE is experimental and is not affiliated with Ableton or Wine. Back up important Live Sets and prefixes before testing it.
@@ -33,11 +33,13 @@ ENCORE is a guided Wine compatibility setup for running Ableton Live 12 Suite on
 
 ## Quick start
 
-Download or clone ENCORE, open a terminal in its folder, and run:
+Download the turnkey archive from the [latest release](https://github.com/wowitsjack/ENCORE/releases/latest), extract it, open a terminal in its folder, and run:
 
 ```sh
 ./install.sh
 ```
+
+The release already contains the compact ENCORE Wine runtime. Cloning the repository also works: the installer downloads and verifies that same pinned runtime before setup.
 
 The installer is an interactive setup wizard. It:
 
@@ -45,7 +47,8 @@ The installer is an interactive setup wizard. It:
 - checks the desktop, session, CPU, memory, disk space, and existing ENCORE setup;
 - finds likely Ableton Live 12 installer files or lets you drag one into the terminal;
 - explains and recommends display scaling instead of silently forcing a DPI;
-- offers quiet, balanced, and fast Wine build modes;
+- uses the bundled runtime or downloads it with a pinned SHA-256 checksum;
+- keeps local Wine compilation as an explicit advanced option;
 - shows the exact system package command before asking for sudo;
 - resumes safe completed work when rerun after a cancellation or failure;
 - installs the application-menu entry and optionally launches Live;
@@ -53,12 +56,25 @@ The installer is an interactive setup wizard. It:
 
 Do **not** run the whole script with `sudo`. ENCORE asks for sudo only if you approve installation of missing system packages.
 
-Ableton Live, its installer, a Wine prefix, and compiled binaries are not included. Supply your own licensed Ableton Live 12 Suite installer.
+The release includes only ENCORE and its patched Wine runtime. Ableton Live, its installer, the Wine prefix, plug-ins, user files, and authorization data are never included. Supply your own licensed Ableton Live 12 Suite installer.
+
+## Binary releases
+
+Each release publishes four files:
+
+- `ENCORE-v0.1.0-linux-x86_64.tar.xz`: the recommended turnkey package with ENCORE and Wine ready to use;
+- `encore-wine-11.13-r1-x86_64-linux-gnu.tar.xz`: the runtime-only asset used by the installer;
+- `encore-wine-11.13-r1-source.tar.xz`: the complete corresponding patched Wine source and build instructions;
+- `SHA256SUMS`: checksums for all three archives.
+
+The runtime is built on Ubuntu 22.04 against glibc 2.35, stripped, audited for absolute build paths and unsafe runtime search paths, then smoke-tested on Ubuntu, Fedora, and Arch Linux. Graphics drivers, audio services, desktop portals, and glibc remain supplied by the user's distribution so the bundle can work with the host desktop and GPU.
+
+ENCORE compiles upstream Wine 11.13 NTSync support. It uses `/dev/ntsync` when the running kernel provides it and falls back to normal Wine server synchronization when it does not. ENCORE does not currently add Proton or Wine-GE Fsync patches.
 
 ## Supported systems
 
 - x86-64 Linux.
-- Ubuntu and Debian through `apt`.
+- Ubuntu 22.04 or newer and Debian 12 or newer through `apt`.
 - Fedora through `dnf`/`dnf5`.
 - Arch Linux and CachyOS through `pacman`.
 - A Wayland session with Xwayland available is recommended.
@@ -67,7 +83,7 @@ GNOME on Wayland is the best-tested desktop. The package setup supports KDE and 
 
 On Arch and CachyOS, approving dependency installation runs `pacman -Syu` because partial upgrades are unsupported. The wizard shows the command before invoking sudo.
 
-The first build needs roughly 15–25 GiB of free space. It can take a while and use substantial CPU. Choose **Quiet** in the wizard if heat or fan noise matters more than build speed.
+The binary runtime is roughly 50 MiB compressed and about 300 MiB after extraction. An optional `--build-from-source` build still needs roughly 15–25 GiB of free space and can use substantial CPU.
 
 ## Display scaling
 
@@ -86,7 +102,7 @@ For mixed-DPI monitors, choose the scale of the monitor where Ableton normally o
 
 ## Existing installations and retries
 
-If the selected prefix already contains Ableton, the wizard offers to reuse it. If the matching ENCORE Wine build is complete, it is reused as well. Partial Wine compilation resumes through Make; the installer never deletes a dirty Wine checkout, an unrelated prefix, or completed downloads.
+If the selected prefix already contains Ableton, the wizard offers to reuse it. A matching verified runtime is reused offline. Interrupted runtime downloads resume safely, and optional source builds resume through Make. The installer never deletes a dirty Wine checkout, an unrelated prefix, or completed work.
 
 Once setup begins, detailed logs are stored under `logs/`. A failure reports the stage, log path, and safely quoted retry command. Fix the stated problem and rerun it; completed safe stages are retained. If an installer was supplied but Ableton is already present, ENCORE reuses it instead of reinstalling unless `--reinstall-ableton` is explicit.
 
@@ -99,14 +115,14 @@ Run `./install.sh --help` for every option. A fully specified unattended install
 ```sh
 ./install.sh --non-interactive --yes --install-deps \
   --installer "/path/to/Ableton Live 12 Suite Installer.exe" \
-  --scale 200 --jobs 2 --no-launch
+  --scale 200 --no-launch
 ```
 
 Useful alternatives:
 
 ```sh
 ./install.sh --dry-run
-./install.sh --build-only --install-deps --jobs 4
+./install.sh --build-from-source --build-only --install-deps --jobs 4
 ./install.sh --no-build --dpi 96
 ./install.sh --prefix "$HOME/Music/Ableton Prefix"
 ```
@@ -128,7 +144,7 @@ Live's **Settings > Plug-ins > VST3 Custom Folder > Browse** control uses the na
 - GNOME/Wayland/Xwayland is the primary tested window-management path; other desktops remain experimental.
 - WebView2 currently requires `--no-sandbox` under this Wine build, weakening isolation for the remote Learn View page.
 - DirectComposition is disabled; Learn View uses SwiftShader and CPU compositing.
-- ENCORE builds Wine locally and does not provide prebuilt binaries or an Ableton installer.
+- Binary releases currently target x86-64 Linux. ARM64 and 32-bit Wine builds are not provided.
 
 ## Bug reports and next steps
 
@@ -142,6 +158,6 @@ The next areas of development are:
 
 ## Licensing and bundled material
 
-ENCORE does not redistribute Ableton software. `patches/encore-wine.patch` is a source delta against the pinned upstream Wine revision and remains subject to the applicable upstream file licenses.
+ENCORE does not redistribute Ableton software. `patches/encore-wine.patch` is a source delta against the pinned upstream Wine revision and remains subject to the applicable upstream file licenses. Binary releases include Wine's license and notices inside the runtime plus the complete corresponding patched Wine source as a separate release asset.
 
 The installer does not ship a replacement font binary. It creates a prefix-local Arial-compatible fallback from the user's installed Liberation Sans, retains the source font's license records, and records the source hash in the generated font metadata.

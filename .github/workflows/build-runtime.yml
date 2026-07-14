@@ -1,0 +1,176 @@
+name: Build portable Wine runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Version recorded in the ENCORE runtime manifest
+        required: true
+        default: v0.1.0
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    name: Build on Ubuntu 22.04
+    runs-on: ubuntu-22.04
+    container:
+      image: ubuntu:22.04
+    timeout-minutes: 240
+    env:
+      JOBS: "4"
+      WINE_INSTALL_PREFIX: /opt/encore-wine
+      SOURCE_DATE_EPOCH: "1783719732"
+      CFLAGS: -O2 -pipe -ffile-prefix-map=${{ github.workspace }}=. -fdebug-prefix-map=${{ github.workspace }}=.
+      CXXFLAGS: -O2 -pipe -ffile-prefix-map=${{ github.workspace }}=. -fdebug-prefix-map=${{ github.workspace }}=.
+
+    steps:
+      - name: Bootstrap the minimal build container
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates git
+
+      - name: Check out ENCORE
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install build and runtime dependencies
+        run: ./scripts/install-dependencies.sh --install build
+
+      - name: Install headless smoke-test tools
+        run: apt-get install -y binutils xvfb xauth
+
+      - name: Build patched Wine
+        run: ./scripts/build-wine.sh
+
+      - name: Package runtime and corresponding source
+        run: ./scripts/package-wine-release.sh "${{ inputs.release_version }}" "$PWD/dist"
+
+      - name: Smoke-test a fresh prefix
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/encore runtime"
+          tar -xJf "dist/$ENCORE_RUNTIME_ASSET" -C "$RUNNER_TEMP/encore runtime"
+          runtime="$RUNNER_TEMP/encore runtime/encore-wine"
+          test "$("$runtime/bin/wine" --version)" = wine-11.13
+          while IFS= read -r -d '' candidate; do
+            readelf -h "$candidate" >/dev/null 2>&1 || continue
+            if ! dependencies=$(LD_LIBRARY_PATH="$runtime/lib/wine/x86_64-unix" \
+                ldd "$candidate" 2>&1); then
+              printf '%s\n' "$dependencies" >&2
+              echo "Could not inspect runtime dependency: $candidate" >&2
+              exit 1
+            fi
+            if grep -F 'not found' <<<"$dependencies"; then
+              echo "Unresolved runtime dependency: $candidate" >&2
+              exit 1
+            fi
+          done < <(find "$runtime" -type f -print0)
+          prefix="$RUNNER_TEMP/wine-prefix"
+          timeout 90 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
+            "$runtime/bin/wineboot" -u
+          timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
+            "$runtime/bin/wine" reg.exe query 'HKCU\\Software\\Wine'
+          timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
+            "$runtime/bin/winepath" 'C:\\windows'
+          WINEPREFIX="$prefix" "$runtime/bin/wineserver" -k
+        env:
+          ENCORE_RUNTIME_ASSET: encore-wine-11.13-r1-x86_64-linux-gnu.tar.xz
+
+      - name: Upload release candidates
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: encore-wine-${{ inputs.release_version }}
+          path: |
+            dist/*.tar.xz
+            dist/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Attest release candidates
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: dist/*.tar.xz
+
+  distro-smoke:
+    name: Smoke test on ${{ matrix.name }}
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 22.04
+            image: ubuntu:22.04
+            bootstrap_packages: apt-get update && apt-get install -y ca-certificates git
+            smoke_packages: apt-get update && apt-get install -y binutils xvfb xauth
+          - name: Fedora
+            image: fedora:latest
+            bootstrap_packages: dnf install -y ca-certificates git
+            smoke_packages: dnf install -y binutils xorg-x11-server-Xvfb xorg-x11-xauth
+          - name: Arch Linux
+            image: archlinux:latest
+            bootstrap_packages: pacman -Syu --needed --noconfirm ca-certificates git
+            smoke_packages: pacman -Syu --needed --noconfirm binutils xorg-server-xvfb xorg-xauth
+
+    container:
+      image: ${{ matrix.image }}
+
+    steps:
+      - name: Bootstrap the smoke-test container
+        run: ${{ matrix.bootstrap_packages }}
+
+      - name: Check out ENCORE
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Download release candidates
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: encore-wine-${{ inputs.release_version }}
+          path: dist
+
+      - name: Install distro runtime dependencies
+        run: ./scripts/install-dependencies.sh --install runtime
+
+      - name: Install headless smoke-test tools
+        run: ${{ matrix.smoke_packages }}
+
+      - name: Verify archive and initialize Wine
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd dist
+          sha256sum -c SHA256SUMS
+          cd ..
+          mkdir -p "$RUNNER_TEMP/runtime"
+          tar -xJf dist/encore-wine-11.13-r1-x86_64-linux-gnu.tar.xz \
+            -C "$RUNNER_TEMP/runtime"
+          runtime="$RUNNER_TEMP/runtime/encore-wine"
+          test "$("$runtime/bin/wine" --version)" = wine-11.13
+          while IFS= read -r -d '' candidate; do
+            readelf -h "$candidate" >/dev/null 2>&1 || continue
+            if ! dependencies=$(LD_LIBRARY_PATH="$runtime/lib/wine/x86_64-unix" \
+                ldd "$candidate" 2>&1); then
+              printf '%s\n' "$dependencies" >&2
+              echo "Could not inspect runtime dependency: $candidate" >&2
+              exit 1
+            fi
+            if grep -F 'not found' <<<"$dependencies"; then
+              echo "Unresolved runtime dependency: $candidate" >&2
+              exit 1
+            fi
+          done < <(find "$runtime" -type f -print0)
+          prefix="$RUNNER_TEMP/prefix"
+          timeout 90 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
+            "$runtime/bin/wineboot" -u
+          timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
+            "$runtime/bin/wine" reg.exe query 'HKCU\\Software\\Wine'
+          timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
+            "$runtime/bin/winepath" 'C:\\windows'
+          WINEPREFIX="$prefix" "$runtime/bin/wineserver" -k

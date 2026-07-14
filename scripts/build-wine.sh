@@ -33,12 +33,14 @@ fi
 
 mkdir -p "$WINE_BUILD" "$PROJECT_ROOT/.tmp"
 export TMPDIR="$PROJECT_ROOT/.tmp"
+encore_cppflags="-I$PROJECT_ROOT/packaging/uapi${CPPFLAGS:+ $CPPFLAGS}"
 
 say "Configuring Wine $WINE_REVISION in $WINE_BUILD"
 if [ "$use_system_dependencies" -eq 1 ]; then
     (
         cd "$WINE_BUILD"
-        "$WINE_SOURCE/configure" \
+        CPPFLAGS="$encore_cppflags" "$WINE_SOURCE/configure" \
+            --prefix="$WINE_INSTALL_PREFIX" \
             --enable-win64 \
             --with-dbus \
             --with-gstreamer \
@@ -96,7 +98,9 @@ else
         PULSE_LIBS="$pulse_library -pthread" \
         GSTREAMER_CFLAGS="$gstreamer_cflags" \
         GSTREAMER_LIBS="$gstreamer_libs" \
-            "$WINE_SOURCE/configure" \
+        CPPFLAGS="$encore_cppflags" \
+        "$WINE_SOURCE/configure" \
+            --prefix="$WINE_INSTALL_PREFIX" \
             --enable-win64 \
             --with-dbus \
             --with-gstreamer \
@@ -114,7 +118,8 @@ for definition in \
     SONAME_LIBDBUS_1 SONAME_LIBFREETYPE SONAME_LIBFONTCONFIG SONAME_LIBGNUTLS \
     SONAME_LIBGL SONAME_LIBVULKAN SONAME_LIBX11 SONAME_LIBXCOMPOSITE \
     SONAME_LIBXCURSOR SONAME_LIBXEXT SONAME_LIBXFIXES SONAME_LIBXI \
-    SONAME_LIBXINERAMA SONAME_LIBXRANDR SONAME_LIBXRENDER HAVE_UDEV
+    SONAME_LIBXINERAMA SONAME_LIBXRANDR SONAME_LIBXRENDER HAVE_UDEV \
+    HAVE_LINUX_NTSYNC_H
 do
     grep -q "^#define $definition " "$WINE_BUILD/include/config.h" ||
         die "Wine configuration is missing required support: $definition"

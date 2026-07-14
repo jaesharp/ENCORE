@@ -7,8 +7,11 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 SCRIPTS="$ROOT/scripts"
 ORIGINAL_ARGS=("$@")
 WINE_REVISION=6eb2e4c32cc9e271856146df11ed3a5c2cf29234
+ENCORE_RELEASE_VERSION=v0.1.0
+ENCORE_GLIBC_MIN=2.35
 DEFAULT_PREFIX="$ROOT/ableton-prefix"
-DEFAULT_WINE="$ROOT/build/wine64/wine"
+SOURCE_WINE="$ROOT/build/wine64/wine"
+DEFAULT_WINE="$ROOT/runtime/wine/bin/wine"
 ABLETON_RELATIVE='drive_c/ProgramData/Ableton/Live 12 Suite/Program/Ableton Live 12 Suite.exe'
 DEPENDENCY_HELPER="$SCRIPTS/install-dependencies.sh"
 
@@ -40,6 +43,8 @@ unset wine_environment_explicit
 installer_cli_set=0
 ableton_cli_set=0
 no_build_requested=0
+prebuilt_requested=0
+source_build_requested=0
 adopt_prefix=0
 reinstall_ableton=0
 log_file=
@@ -62,9 +67,11 @@ Setup options:
   --reinstall-ableton    Run --installer even when Ableton is already present
   --dpi N                Wine DPI from 72 to 384
   --scale PERCENT        Display scale: 100, 125, 150, 175, 200, or 250
-  --jobs N               Parallel Wine build jobs
-  --wine FILE            Reuse an existing ENCORE Wine build; implies --no-build
-  --no-build             Skip Wine compilation and reuse --wine/default Wine
+  --jobs N               Parallel jobs for an optional source build
+  --wine FILE            Reuse an existing ENCORE Wine runtime
+  --prebuilt             Download the verified prebuilt runtime (default)
+  --build-from-source    Compile the patched Wine tree locally instead
+  --no-build             Require an existing --wine/default runtime
   --build-only           Build Wine, then stop before Ableton setup
   --configure-only       Configure Wine, then stop (advanced diagnostics)
 
@@ -153,14 +160,34 @@ while (($#)); do
             no_build_requested=1
             build_mode=skip
             ;;
+        --prebuilt)
+            [[ $wine_explicit -eq 0 ]] || {
+                printf 'ENCORE: --prebuilt cannot be combined with --wine\n' >&2
+                exit 2
+            }
+            build_mode=download
+            wine=$DEFAULT_WINE
+            prebuilt_requested=1
+            ;;
+        --build-from-source)
+            [[ $wine_explicit -eq 0 ]] || {
+                printf 'ENCORE: --build-from-source cannot be combined with --wine\n' >&2
+                exit 2
+            }
+            build_mode=build
+            wine=$SOURCE_WINE
+            source_build_requested=1
+            ;;
         --build-only)
             build_only=1
             build_mode=build
+            wine=$SOURCE_WINE
             ;;
         --configure-only)
             configure_only=1
             build_only=1
             build_mode=build
+            wine=$SOURCE_WINE
             ;;
         --dpi)
             need_value "$1" "${2:-}"
@@ -233,6 +260,21 @@ if [[ $wine_explicit -eq 1 && $build_mode == auto ]]; then
 fi
 if [[ $no_build_requested -eq 1 && $build_only -eq 1 ]]; then
     printf 'ENCORE: --no-build/--wine cannot be combined with --build-only\n' >&2
+    exit 2
+fi
+if [[ $prebuilt_requested -eq 1 &&
+      ($source_build_requested -eq 1 || $no_build_requested -eq 1 ||
+       $build_only -eq 1 || $wine_explicit -eq 1) ]]; then
+    printf 'ENCORE: --prebuilt cannot be combined with a source build, --no-build, or --wine\n' >&2
+    exit 2
+fi
+if [[ $source_build_requested -eq 1 &&
+      ($no_build_requested -eq 1 || $wine_explicit -eq 1) ]]; then
+    printf 'ENCORE: --build-from-source cannot be combined with --no-build or --wine\n' >&2
+    exit 2
+fi
+if [[ $build_only -eq 1 && $build_mode != build ]]; then
+    printf 'ENCORE: --build-only/--configure-only cannot be combined with --prebuilt\n' >&2
     exit 2
 fi
 
@@ -603,8 +645,44 @@ choose_installer()
 wine_build_ready()
 {
     local candidate=$1 build_dir stamp expected_hash definition config
+    local runtime_root manifest glibc_max
+    local -a runtime_records=()
     [[ -x $candidate ]] || return 1
     [[ $("$candidate" --version 2>/dev/null) == wine-11.13 ]] || return 1
+    expected_hash=$(sha256sum "$ROOT/patches/encore-wine.patch" | awk '{print $1}')
+
+    build_dir=$(dirname -- "$candidate")
+    runtime_root=$(dirname -- "$build_dir")
+    manifest=$runtime_root/.encore-runtime
+    if [[ ${build_dir##*/} == bin && -f $manifest ]]; then
+        [[ -x $runtime_root/bin/wineserver ]] || return 1
+        for config in \
+            lib/wine/x86_64-unix/ntdll.so \
+            lib/wine/x86_64-unix/dxgi.dll.so \
+            lib/wine/x86_64-unix/winex11.so \
+            lib/wine/x86_64-unix/winegstreamer.so \
+            lib/wine/x86_64-unix/winepulse.so \
+            lib/wine/x86_64-unix/winevulkan.so \
+            lib/wine/x86_64-unix/comdlg32.so \
+            share/wine/wine.inf
+        do
+            [[ -f $runtime_root/$config ]] || return 1
+        done
+        mapfile -t runtime_records <"$manifest"
+        [[ ${#runtime_records[@]} -eq 7 ]] || return 1
+        [[ ${runtime_records[0]} == ENCORE_WINE_RUNTIME_V1 ]] || return 1
+        [[ ${runtime_records[1]} == "encore_version=$ENCORE_RELEASE_VERSION" ]] || return 1
+        [[ ${runtime_records[2]} == wine_version=11.13 ]] || return 1
+        [[ ${runtime_records[3]} == "wine_revision=$WINE_REVISION" ]] || return 1
+        [[ ${runtime_records[4]} == "patch_sha256=$expected_hash" ]] || return 1
+        [[ ${runtime_records[5]} == arch=x86_64 ]] || return 1
+        [[ ${runtime_records[6]} =~ ^glibc_max=([0-9]+\.[0-9]+)$ ]] || return 1
+        glibc_max=${BASH_REMATCH[1]}
+        [[ $(printf '%s\n' "$glibc_max" 2.35 | sort -V | tail -n 1) == 2.35 ]] ||
+            return 1
+        return 0
+    fi
+
     build_dir=$(dirname -- "$candidate")
     [[ -x $build_dir/server/wineserver ]] || return 1
     [[ -f $build_dir/dlls/dxgi/dxgi.dll.so ]] || return 1
@@ -620,16 +698,26 @@ wine_build_ready()
         SONAME_LIBDBUS_1 SONAME_LIBFREETYPE SONAME_LIBFONTCONFIG SONAME_LIBGNUTLS \
         SONAME_LIBGL SONAME_LIBVULKAN SONAME_LIBX11 SONAME_LIBXCOMPOSITE \
         SONAME_LIBXCURSOR SONAME_LIBXEXT SONAME_LIBXFIXES SONAME_LIBXI \
-        SONAME_LIBXINERAMA SONAME_LIBXRANDR SONAME_LIBXRENDER HAVE_UDEV
+        SONAME_LIBXINERAMA SONAME_LIBXRANDR SONAME_LIBXRENDER HAVE_UDEV \
+        HAVE_LINUX_NTSYNC_H
     do
         grep -q "^#define $definition " "$config" || return 1
     done
 
     stamp="$build_dir/.encore-build"
     [[ -f $stamp ]] || return 1
-    expected_hash=$(sha256sum "$ROOT/patches/encore-wine.patch" | awk '{print $1}')
     grep -Fqx "wine_revision=$WINE_REVISION" "$stamp" || return 1
     grep -Fqx "patch_sha256=$expected_hash" "$stamp" || return 1
+}
+
+prebuilt_host_ready()
+{
+    local host_glibc
+    [[ $(uname -m) == x86_64 ]] || return 1
+    host_glibc=$(getconf GNU_LIBC_VERSION 2>/dev/null || true)
+    [[ $host_glibc =~ ^glibc\ ([0-9]+\.[0-9]+)$ ]] || return 1
+    [[ $(printf '%s\n' "$ENCORE_GLIBC_MIN" "${BASH_REMATCH[1]}" |
+        sort -V | head -n 1) == "$ENCORE_GLIBC_MIN" ]]
 }
 
 dependency_profile=build
@@ -639,7 +727,7 @@ dependency_action=none
 inspect_dependencies()
 {
     [[ -x $DEPENDENCY_HELPER ]] || die "missing dependency helper: $DEPENDENCY_HELPER"
-    [[ $build_mode == skip ]] && dependency_profile=runtime || dependency_profile=build
+    [[ $build_mode == build ]] && dependency_profile=build || dependency_profile=runtime
     if "$DEPENDENCY_HELPER" --check "$dependency_profile" >/dev/null 2>&1; then
         dependency_action=none
     else
@@ -699,7 +787,7 @@ verify_external_wine()
     [[ $version == wine-11.13 ]] ||
         die "Expected ENCORE's Wine 11.13 build, but $wine reports ${version:-no version}"
     wine_build_ready "$wine" ||
-        die "Wine 11.13 was found, but its ENCORE build artifacts or build stamp are incomplete: $wine"
+        die "Wine 11.13 was found, but its ENCORE runtime manifest or build artifacts are incomplete: $wine"
 }
 
 verify_installation()
@@ -952,8 +1040,13 @@ prepare_choices()
         if wine_build_ready "$wine"; then
             build_mode=skip
         else
-            build_mode=build
+            build_mode=download
+            wine=$DEFAULT_WINE
         fi
+    fi
+
+    if [[ $build_mode == download ]] && ! prebuilt_host_ready; then
+        die "The prebuilt runtime requires x86-64 glibc $ENCORE_GLIBC_MIN or newer. Use --build-from-source on this system."
     fi
 
     if [[ $build_mode == build ]]; then
@@ -966,7 +1059,7 @@ prepare_choices()
             fi
         fi
         validate_integer 'Build jobs' "$jobs" 1 64
-    else
+    elif [[ $build_mode == skip ]]; then
         verify_external_wine
     fi
 
@@ -993,15 +1086,20 @@ prepare_choices()
 
 show_plan()
 {
-    local dependency_description
+    local dependency_description wine_description
     case $dependency_action in
         install) dependency_description='install with the system package manager' ;;
         blocked) dependency_description='missing (dry-run cannot install them)' ;;
         *) dependency_description='already available' ;;
     esac
+    case $build_mode in
+        build) wine_description='build/resume ENCORE Wine from source' ;;
+        download) wine_description='download the verified prebuilt ENCORE Wine runtime' ;;
+        *) wine_description="reuse $wine" ;;
+    esac
     heading 'Setup plan'
     say "  Distribution:      $distro_name"
-    say "  Wine:              $([[ $build_mode == build ]] && printf 'build/resume ENCORE Wine' || printf 'reuse %s' "$wine")"
+    say "  Wine:              $wine_description"
     [[ $build_mode != build ]] || say "  Build jobs:         $jobs"
     say "  Dependencies:       $dependency_description"
     if [[ $build_only -eq 1 ]]; then
@@ -1080,18 +1178,26 @@ main()
     "$DEPENDENCY_HELPER" --check "$dependency_profile" >>"$log_file" 2>&1 ||
         die 'Dependency verification still fails after package setup.'
 
-    if [[ $build_mode == build ]]; then
-        export JOBS=$jobs
-        wine=$DEFAULT_WINE
-        export ENCORE_WINE=$wine
-        if [[ $configure_only -eq 1 ]]; then
-            run_stage 'Configure ENCORE Wine' "$SCRIPTS/build-wine.sh" --configure-only
-        else
-            run_stage 'Build ENCORE Wine' "$SCRIPTS/build-wine.sh"
-        fi
-    else
-        ok "Reusing Wine: $wine"
-    fi
+    case $build_mode in
+        build)
+            export JOBS=$jobs
+            wine=$SOURCE_WINE
+            export ENCORE_WINE=$wine
+            if [[ $configure_only -eq 1 ]]; then
+                run_stage 'Configure ENCORE Wine' "$SCRIPTS/build-wine.sh" --configure-only
+            else
+                run_stage 'Build ENCORE Wine from source' "$SCRIPTS/build-wine.sh"
+            fi
+            ;;
+        download)
+            run_stage 'Download verified ENCORE Wine runtime' "$SCRIPTS/download-wine-runtime.sh"
+            wine=$DEFAULT_WINE
+            verify_external_wine
+            ;;
+        *)
+            ok "Reusing Wine: $wine"
+            ;;
+    esac
 
     if [[ $build_only -eq 1 ]]; then
         ok "$([[ $configure_only -eq 1 ]] && printf 'Wine configuration' || printf 'Wine build') finished successfully"
