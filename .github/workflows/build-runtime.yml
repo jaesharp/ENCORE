@@ -48,6 +48,17 @@ jobs:
       - name: Package runtime and corresponding source
         run: ./scripts/package-wine-release.sh "${{ inputs.release_version }}" "$PWD/dist"
 
+      - name: Upload release candidates
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: encore-wine-${{ inputs.release_version }}
+          path: |
+            dist/*.tar.xz
+            dist/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
       - name: Smoke-test a fresh prefix
         shell: bash
         run: |
@@ -69,7 +80,7 @@ jobs:
               exit 1
             fi
           done < <(find "$runtime" -type f -print0)
-          prefix="$RUNNER_TEMP/wine-prefix"
+          prefix=$(mktemp -d /tmp/encore-wine-prefix.XXXXXX)
           timeout 90 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
             "$runtime/bin/wineboot" -u
           timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
@@ -79,17 +90,6 @@ jobs:
           WINEPREFIX="$prefix" "$runtime/bin/wineserver" -k
         env:
           ENCORE_RUNTIME_ASSET: encore-wine-11.13-r1-x86_64-linux-gnu.tar.xz
-
-      - name: Upload release candidates
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: encore-wine-${{ inputs.release_version }}
-          path: |
-            dist/*.tar.xz
-            dist/SHA256SUMS
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 7
 
       - name: Attest release candidates
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
@@ -167,7 +167,7 @@ jobs:
               exit 1
             fi
           done < <(find "$runtime" -type f -print0)
-          prefix="$RUNNER_TEMP/prefix"
+          prefix=$(mktemp -d /tmp/encore-wine-prefix.XXXXXX)
           timeout 90 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
             "$runtime/bin/wineboot" -u
           timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
