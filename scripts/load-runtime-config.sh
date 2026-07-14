@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Load installer-selected runtime paths without evaluating the file as shell code.
+# Load setup-selected runtime paths without evaluating the file as shell code.
 # The caller must define ROOT before sourcing this module.
 
 _encore_runtime_config=${ENCORE_RUNTIME_CONFIG:-"$ROOT/.encore/runtime.conf"}

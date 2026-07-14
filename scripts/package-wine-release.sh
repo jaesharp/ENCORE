@@ -17,8 +17,8 @@ esac
 [ "$release_version" = "$ENCORE_RELEASE_VERSION" ] ||
     die "release version must match $ENCORE_RELEASE_VERSION"
 
-for command in awk cp find grep install make mktemp readelf sed sha256sum \
-    sort strip tail tar xz; do
+for command in awk cp find grep i686-w64-mingw32-strip install make mktemp \
+    objdump readelf sed sha256sum sort strip tail tar x86_64-w64-mingw32-strip xz; do
     require_command "$command"
 done
 
@@ -27,6 +27,13 @@ done
 [ -f "$WINE_BUILD/include/config.h" ] || die "missing Wine configuration"
 grep -Fqx "prefix = $WINE_INSTALL_PREFIX" "$WINE_BUILD/config.status" ||
     die "Wine must be configured with --prefix=$WINE_INSTALL_PREFIX"
+grep -Fqx 'HOST_ARCH = x86_64' "$WINE_BUILD/Makefile" ||
+    die 'Wine must use the x86_64 Unix host architecture'
+read -r -a configured_pe_archs <<<"$(sed -n 's/^PE_ARCHS = *//p' "$WINE_BUILD/Makefile")"
+[[ ${#configured_pe_archs[@]} -eq 2 &&
+    ${configured_pe_archs[0]} == i386 &&
+    ${configured_pe_archs[1]} == x86_64 ]] ||
+    die 'Wine must be built with both i386 and x86_64 PE architectures'
 
 for definition in \
     SONAME_LIBDBUS_1 SONAME_LIBFREETYPE SONAME_LIBFONTCONFIG SONAME_LIBGNUTLS \
@@ -63,7 +70,7 @@ if [ -f "$PROJECT_ROOT/install.sh" ] &&
 fi
 
 say "Staging the installed Wine runtime"
-make -C "$WINE_BUILD" install-lib DESTDIR="$stage_dir"
+make -C "$WINE_BUILD" install-lib DESTDIR="$stage_dir" INSTALL_PROGRAM_FLAGS=-s
 [ -d "$stage_dir$WINE_INSTALL_PREFIX" ] || die "Wine install-lib produced no runtime"
 cp -a "$stage_dir$WINE_INSTALL_PREFIX/." "$runtime_dir/"
 rm -rf "$runtime_dir/share/man" "$runtime_dir/share/applications"
@@ -71,16 +78,34 @@ rm -rf "$runtime_dir/share/man" "$runtime_dir/share/applications"
 for required in \
     bin/wine bin/wineserver \
     lib/wine/x86_64-unix/ntdll.so \
-    lib/wine/x86_64-unix/dxgi.dll.so \
     lib/wine/x86_64-unix/winex11.so \
     lib/wine/x86_64-unix/winegstreamer.so \
     lib/wine/x86_64-unix/winepulse.so \
     lib/wine/x86_64-unix/winevulkan.so \
     lib/wine/x86_64-unix/comdlg32.so \
+    lib/wine/x86_64-windows/ntdll.dll \
+    lib/wine/x86_64-windows/wow64.dll \
+    lib/wine/x86_64-windows/wow64cpu.dll \
+    lib/wine/x86_64-windows/wow64win.dll \
+    lib/wine/x86_64-windows/dxgi.dll \
+    lib/wine/i386-windows/ntdll.dll \
+    lib/wine/i386-windows/kernel32.dll \
+    lib/wine/i386-windows/dxgi.dll \
+    lib/wine/i386-windows/cmd.exe \
+    lib/wine/i386-windows/wineboot.exe \
     share/wine/wine.inf
 do
     [ -e "$runtime_dir/$required" ] || die "runtime is missing $required"
 done
+[ ! -e "$runtime_dir/lib/wine/i386-unix" ] ||
+    die 'runtime unexpectedly contains 32-bit Unix libraries'
+
+objdump -f "$runtime_dir/lib/wine/i386-windows/ntdll.dll" |
+    grep -Eq 'architecture: i386(,|$)' ||
+    die 'packaged i386 ntdll.dll is not a 32-bit PE binary'
+objdump -f "$runtime_dir/lib/wine/x86_64-windows/ntdll.dll" |
+    grep -Eq 'architecture: i386:x86-64(,|$)' ||
+    die 'packaged x86_64 ntdll.dll is not a 64-bit PE binary'
 
 say "Stripping runtime debug symbols"
 while IFS= read -r -d '' file; do
@@ -133,6 +158,7 @@ wine_version=11.13
 wine_revision=$WINE_REVISION
 patch_sha256=$patch_sha256
 arch=x86_64
+pe_archs=i386,x86_64
 glibc_max=$glibc_max
 EOF
 
@@ -141,7 +167,8 @@ ENCORE Wine runtime $release_version
 Wine version: 11.13
 Upstream revision: $WINE_REVISION
 ENCORE patch SHA-256: $patch_sha256
-Architecture: x86_64-linux-gnu
+Host architecture: x86_64-linux-gnu
+Windows PE architectures: i386, x86_64
 Maximum required glibc symbol: $glibc_max
 NTSync: compiled in and used when /dev/ntsync is available
 Source archive: $ENCORE_SOURCE_ASSET

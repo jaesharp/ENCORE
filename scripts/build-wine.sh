@@ -10,10 +10,14 @@ esac
 
 require_command gcc
 require_command grep
+require_command i686-w64-mingw32-g++
+require_command i686-w64-mingw32-gcc
 require_command make
 require_command nice
 require_command readlink
 require_command sha256sum
+require_command x86_64-w64-mingw32-g++
+require_command x86_64-w64-mingw32-gcc
 
 "$SCRIPT_DIR/bootstrap-wine.sh"
 
@@ -45,7 +49,7 @@ if [ "$use_system_dependencies" -eq 1 ]; then
         cd "$WINE_BUILD"
         CPPFLAGS="$encore_cppflags" "$WINE_SOURCE/configure" \
             --prefix="$WINE_INSTALL_PREFIX" \
-            --enable-win64 \
+            --enable-archs=i386,x86_64 \
             --with-dbus \
             --with-gstreamer \
             --with-pulse
@@ -105,12 +109,19 @@ else
         CPPFLAGS="$encore_cppflags" \
         "$WINE_SOURCE/configure" \
             --prefix="$WINE_INSTALL_PREFIX" \
-            --enable-win64 \
+            --enable-archs=i386,x86_64 \
             --with-dbus \
             --with-gstreamer \
             --with-pulse
     )
 fi
+
+grep -Fqx 'HOST_ARCH = x86_64' "$WINE_BUILD/Makefile" ||
+    die 'Wine configuration did not select the x86_64 Unix host architecture'
+pe_archs=$(sed -n 's/^PE_ARCHS = *//p' "$WINE_BUILD/Makefile")
+set -- $pe_archs
+[ "$#" -eq 2 ] && [ "$1" = i386 ] && [ "$2" = x86_64 ] ||
+    die "Wine configuration did not select both i386 and x86_64 PE architectures: ${pe_archs:-none}"
 
 if grep '^DISABLED_SUBDIRS = ' "$WINE_BUILD/Makefile" | tr ' ' '\n' |
    grep -qx 'dlls/winegstreamer'; then
@@ -149,12 +160,21 @@ fi
 version=$("$WINE_BINARY" --version)
 [ "$version" = wine-11.13 ] || die "unexpected Wine version: $version"
 for artifact in \
-    "$WINE_BUILD/dlls/dxgi/dxgi.dll.so" \
     "$WINE_BUILD/dlls/winex11.drv/winex11.so" \
     "$WINE_BUILD/dlls/winegstreamer/winegstreamer.so" \
     "$WINE_BUILD/dlls/winepulse.drv/winepulse.so" \
     "$WINE_BUILD/dlls/winevulkan/winevulkan.so" \
-    "$WINE_BUILD/dlls/comdlg32/comdlg32.so"
+    "$WINE_BUILD/dlls/comdlg32/comdlg32.so" \
+    "$WINE_BUILD/dlls/ntdll/x86_64-windows/ntdll.dll" \
+    "$WINE_BUILD/dlls/wow64/x86_64-windows/wow64.dll" \
+    "$WINE_BUILD/dlls/wow64cpu/x86_64-windows/wow64cpu.dll" \
+    "$WINE_BUILD/dlls/wow64win/x86_64-windows/wow64win.dll" \
+    "$WINE_BUILD/dlls/dxgi/x86_64-windows/dxgi.dll" \
+    "$WINE_BUILD/dlls/ntdll/i386-windows/ntdll.dll" \
+    "$WINE_BUILD/dlls/kernel32/i386-windows/kernel32.dll" \
+    "$WINE_BUILD/dlls/dxgi/i386-windows/dxgi.dll" \
+    "$WINE_BUILD/programs/cmd/i386-windows/cmd.exe" \
+    "$WINE_BUILD/programs/wineboot/i386-windows/wineboot.exe"
 do
     [ -f "$artifact" ] || die "build completed without $artifact"
 done

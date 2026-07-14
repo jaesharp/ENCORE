@@ -36,23 +36,34 @@ validate_runtime()
     [ -x "$root/bin/wine" ] || return 1
     [ -x "$root/bin/wineserver" ] || return 1
     [ -f "$root/lib/wine/x86_64-unix/ntdll.so" ] || return 1
-    [ -f "$root/lib/wine/x86_64-unix/dxgi.dll.so" ] || return 1
     [ -f "$root/lib/wine/x86_64-unix/winex11.so" ] || return 1
     [ -f "$root/lib/wine/x86_64-unix/winepulse.so" ] || return 1
     [ -f "$root/lib/wine/x86_64-unix/winegstreamer.so" ] || return 1
     [ -f "$root/lib/wine/x86_64-unix/winevulkan.so" ] || return 1
     [ -f "$root/lib/wine/x86_64-unix/comdlg32.so" ] || return 1
+    [ -f "$root/lib/wine/x86_64-windows/ntdll.dll" ] || return 1
+    [ -f "$root/lib/wine/x86_64-windows/wow64.dll" ] || return 1
+    [ -f "$root/lib/wine/x86_64-windows/wow64cpu.dll" ] || return 1
+    [ -f "$root/lib/wine/x86_64-windows/wow64win.dll" ] || return 1
+    [ -f "$root/lib/wine/x86_64-windows/dxgi.dll" ] || return 1
+    [ -f "$root/lib/wine/i386-windows/ntdll.dll" ] || return 1
+    [ -f "$root/lib/wine/i386-windows/kernel32.dll" ] || return 1
+    [ -f "$root/lib/wine/i386-windows/dxgi.dll" ] || return 1
+    [ -f "$root/lib/wine/i386-windows/cmd.exe" ] || return 1
+    [ -f "$root/lib/wine/i386-windows/wineboot.exe" ] || return 1
+    [ ! -e "$root/lib/wine/i386-unix" ] || return 1
     [ -f "$root/share/wine/wine.inf" ] || return 1
     [ -f "$manifest" ] || return 1
     mapfile -t records <"$manifest"
-    [ "${#records[@]}" -eq 7 ] || return 1
+    [ "${#records[@]}" -eq 8 ] || return 1
     [ "${records[0]}" = ENCORE_WINE_RUNTIME_V1 ] || return 1
     [ "${records[1]}" = "encore_version=$ENCORE_RELEASE_VERSION" ] || return 1
     [ "${records[2]}" = wine_version=11.13 ] || return 1
     [ "${records[3]}" = "wine_revision=$WINE_REVISION" ] || return 1
     [ "${records[4]}" = "patch_sha256=$expected_patch" ] || return 1
     [ "${records[5]}" = arch=x86_64 ] || return 1
-    [[ ${records[6]} =~ ^glibc_max=([0-9]+\.[0-9]+)$ ]] || return 1
+    [ "${records[6]}" = pe_archs=i386,x86_64 ] || return 1
+    [[ ${records[7]} =~ ^glibc_max=([0-9]+\.[0-9]+)$ ]] || return 1
     glibc_max=${BASH_REMATCH[1]}
     [ "$(printf '%s\n' "$glibc_max" 2.35 | sort -V | tail -n 1)" = 2.35 ] ||
         return 1
@@ -83,7 +94,7 @@ say "Downloading the prebuilt ENCORE Wine runtime"
 if ! curl --fail --location --proto '=https' --proto-redir '=https' --tlsv1.2 \
     --retry 4 --retry-all-errors --continue-at - --max-filesize 536870912 \
     --output "$archive" "$url"; then
-    die "runtime download failed; rerun the installer to resume it"
+    die "runtime download failed; rerun ENCORE setup to resume it"
 fi
 
 actual_sha256=$(sha256sum "$archive" | awk '{print $1}')

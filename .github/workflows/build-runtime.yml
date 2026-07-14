@@ -83,6 +83,14 @@ jobs:
           prefix=$(mktemp -d /tmp/encore-wine-prefix.XXXXXX)
           timeout 90 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
             "$runtime/bin/wineboot" -u
+          test -s "$prefix/drive_c/windows/syswow64/ntdll.dll"
+          test -s "$prefix/drive_c/windows/syswow64/cmd.exe"
+          objdump -f "$runtime/lib/wine/i386-windows/cmd.exe" | \
+            grep -Eq 'architecture: i386(,|$)'
+          wow64_arch=$(timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
+            "$runtime/bin/wine" 'C:\windows\syswow64\cmd.exe' /d /c \
+            'echo %PROCESSOR_ARCHITECTURE%' | tr -d '\r')
+          grep -Fqx x86 <<<"$wow64_arch"
           timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
             "$runtime/bin/wine" reg.exe query 'HKCU\Software\Wine'
           timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
@@ -170,6 +178,14 @@ jobs:
           prefix=$(mktemp -d /tmp/encore-wine-prefix.XXXXXX)
           timeout 90 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
             "$runtime/bin/wineboot" -u
+          test -s "$prefix/drive_c/windows/syswow64/ntdll.dll"
+          test -s "$prefix/drive_c/windows/syswow64/cmd.exe"
+          objdump -f "$runtime/lib/wine/i386-windows/cmd.exe" | \
+            grep -Eq 'architecture: i386(,|$)'
+          wow64_arch=$(timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
+            "$runtime/bin/wine" 'C:\windows\syswow64\cmd.exe' /d /c \
+            'echo %PROCESSOR_ARCHITECTURE%' | tr -d '\r')
+          grep -Fqx x86 <<<"$wow64_arch"
           timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
             "$runtime/bin/wine" reg.exe query 'HKCU\Software\Wine'
           timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \

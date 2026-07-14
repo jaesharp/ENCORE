@@ -13,6 +13,7 @@ DEFAULT_PREFIX="$ROOT/ableton-prefix"
 SOURCE_WINE="$ROOT/build/wine64/wine"
 DEFAULT_WINE="$ROOT/runtime/wine/bin/wine"
 ABLETON_RELATIVE='drive_c/ProgramData/Ableton/Live 12 Suite/Program/Ableton Live 12 Suite.exe'
+ABLETON_EXE_RELATIVE='Program/Ableton Live 12 Suite.exe'
 DEPENDENCY_HELPER="$SCRIPTS/install-dependencies.sh"
 
 wine_environment_explicit=0
@@ -30,7 +31,11 @@ build_only=0
 configure_only=0
 install_desktop=1
 launch_policy=ask
-installer=${ABLETON_INSTALLER:-}
+live_source=${ABLETON_LIVE_DIR:-}
+live_destination=
+live_source_size_kib=0
+live_required_space_kib=0
+default_ableton=
 prefix=${ENCORE_PREFIX:-$DEFAULT_PREFIX}
 wine=${ENCORE_WINE:-$DEFAULT_WINE}
 ableton=${ENCORE_ABLETON:-}
@@ -40,13 +45,13 @@ jobs=${JOBS:-}
 wine_explicit=0
 [[ $wine_environment_explicit -eq 0 ]] || wine_explicit=1
 unset wine_environment_explicit
-installer_cli_set=0
+live_source_cli_set=0
 ableton_cli_set=0
 no_build_requested=0
 prebuilt_requested=0
 source_build_requested=0
 adopt_prefix=0
-reinstall_ableton=0
+replace_live=0
 log_file=
 lock_fd=
 cancelled=0
@@ -54,17 +59,17 @@ cancelled=0
 usage()
 {
     cat <<'EOF'
-Usage: ./install.sh [options] [ABLETON_INSTALLER.exe]
+Usage: ./install.sh [options] [ABLETON_LIVE_FOLDER]
 
-Run the guided ENCORE setup. With no options in a terminal, the installer
+Run the guided ENCORE setup. With no options in a terminal, the wizard
 detects your system and walks you through every choice.
 
 Setup options:
-  --installer FILE       Licensed Ableton Live 12 Suite installer
+  --live-dir DIR         Complete Windows-installed "Live 12 Suite" folder
   --prefix DIR           Wine prefix (default: ./ableton-prefix)
   --ableton FILE         Existing Ableton executable inside the prefix
   --adopt-prefix         Allow use of a non-empty, unrecognized prefix
-  --reinstall-ableton    Run --installer even when Ableton is already present
+  --replace-live         Replace Live in the prefix using --live-dir
   --dpi N                Wine DPI from 72 to 384
   --scale PERCENT        Display scale: 100, 125, 150, 175, 200, or 250
   --jobs N               Parallel jobs for an optional source build
@@ -88,7 +93,11 @@ Dependency and automation options:
   -h, --help             Show this help
 
 Supported package families: Ubuntu/Debian (apt), Fedora (dnf), and
-Arch/CachyOS (pacman). Ableton itself is not downloaded or bundled.
+Arch/CachyOS (pacman). Ableton is not downloaded or bundled. For a new
+prefix, supply the complete "Live 12 Suite" folder copied from a Windows
+installation, or an equivalent folder lawfully extracted from your own
+licensed copy. Do not supply a downloaded installer, a lone .exe, or only
+the Program folder.
 EOF
 }
 
@@ -102,23 +111,23 @@ need_value()
 
 while (($#)); do
     case $1 in
-        --installer)
+        --live-dir)
             need_value "$1" "${2:-}"
-            [[ $installer_cli_set -eq 0 ]] || {
-                printf 'ENCORE: only one Ableton installer may be supplied\n' >&2
+            [[ $live_source_cli_set -eq 0 ]] || {
+                printf 'ENCORE: only one Ableton Live source folder may be supplied\n' >&2
                 exit 2
             }
-            installer=$2
-            installer_cli_set=1
+            live_source=$2
+            live_source_cli_set=1
             shift
             ;;
-        --installer=*)
-            [[ $installer_cli_set -eq 0 ]] || {
-                printf 'ENCORE: only one Ableton installer may be supplied\n' >&2
+        --live-dir=*)
+            [[ $live_source_cli_set -eq 0 ]] || {
+                printf 'ENCORE: only one Ableton Live source folder may be supplied\n' >&2
                 exit 2
             }
-            installer=${1#*=}
-            installer_cli_set=1
+            live_source=${1#*=}
+            live_source_cli_set=1
             ;;
         --prefix)
             need_value "$1" "${2:-}"
@@ -141,7 +150,7 @@ while (($#)); do
             ableton_cli_set=1
             ;;
         --adopt-prefix) adopt_prefix=1 ;;
-        --reinstall-ableton) reinstall_ableton=1 ;;
+        --replace-live) replace_live=1 ;;
         --wine)
             need_value "$1" "${2:-}"
             wine=$2
@@ -230,24 +239,24 @@ while (($#)); do
             exit 2
             ;;
         *)
-            [[ $installer_cli_set -eq 0 ]] || {
-                printf 'ENCORE: only one Ableton installer may be supplied\n' >&2
+            [[ $live_source_cli_set -eq 0 ]] || {
+                printf 'ENCORE: only one Ableton Live source folder may be supplied\n' >&2
                 exit 2
             }
-            installer=$1
-            installer_cli_set=1
+            live_source=$1
+            live_source_cli_set=1
             ;;
     esac
     shift
 done
 
 while (($#)); do
-    [[ $installer_cli_set -eq 0 ]] || {
-        printf 'ENCORE: only one Ableton installer may be supplied\n' >&2
+    [[ $live_source_cli_set -eq 0 ]] || {
+        printf 'ENCORE: only one Ableton Live source folder may be supplied\n' >&2
         exit 2
     }
-    installer=$1
-    installer_cli_set=1
+    live_source=$1
+    live_source_cli_set=1
     shift
 done
 
@@ -275,6 +284,10 @@ if [[ $source_build_requested -eq 1 &&
 fi
 if [[ $build_only -eq 1 && $build_mode != build ]]; then
     printf 'ENCORE: --build-only/--configure-only cannot be combined with --prebuilt\n' >&2
+    exit 2
+fi
+if [[ $build_only -eq 1 && $replace_live -eq 1 ]]; then
+    printf 'ENCORE: --replace-live cannot be combined with --build-only/--configure-only\n' >&2
     exit 2
 fi
 
@@ -408,7 +421,7 @@ pause_for_live_to_close()
 {
     while "$SCRIPTS/process-is-running.sh" "$ableton"; do
         if [[ $interactive -eq 0 || $assume_yes -eq 1 ]]; then
-            die 'Ableton Live is running. Close it, then run the installer again.'
+            die 'Ableton Live is running. Close it, then run ENCORE setup again.'
         fi
         warn 'Ableton Live must be closed before ENCORE changes the prefix.'
         read -r -p 'Close Ableton, then press Enter to check again (q to cancel): ' answer
@@ -576,43 +589,125 @@ choose_jobs()
     done
 }
 
-find_installers()
+live_source_error=
+
+validate_live_source()
 {
-    local directory candidate
-    installer_candidates=()
+    local candidate=$1 marker
+    local -a required_files=(
+        "$ABLETON_EXE_RELATIVE"
+        'Program/Ableton Live Engine.dll'
+        'Program/Installation.cfg'
+        'Resources/GUI.alp'
+        'Resources/Graphics.alp'
+        'Resources/Icons/live_suite.ico'
+        'Redist/vc_redist.exe'
+        'Redist/MicrosoftEdgeWebview2Setup.exe'
+        'Legal/Third-party License Information.txt'
+    )
+    live_source_error=
+
+    if [[ -f $candidate ]]; then
+        case ${candidate,,} in
+            *.exe|*.msi)
+                live_source_error='That path is an executable or installer. Select the outer "Live 12 Suite" folder from an installed Windows copy.'
+                ;;
+            *.zip|*.7z|*.rar|*.tar|*.tar.gz|*.tgz|*.tar.xz)
+                live_source_error='That path is an archive. ENCORE needs the complete already-installed "Live 12 Suite" folder after it has been extracted.'
+                ;;
+            *)
+                live_source_error='That path is a file. Select the outer "Live 12 Suite" folder, not an individual file.'
+                ;;
+        esac
+        return 1
+    fi
+    if [[ ! -d $candidate ]]; then
+        live_source_error="Ableton Live source folder not found: $candidate"
+        return 1
+    fi
+    if [[ ${candidate%/} == */Program &&
+          -s $candidate/'Ableton Live 12 Suite.exe' ]]; then
+        live_source_error='Select the parent "Live 12 Suite" folder, not Program by itself. The parent must also contain Resources, Redist, and Legal.'
+        return 1
+    fi
+    if find "$candidate" -maxdepth 1 -type f \
+       \( -iname '*Ableton*Installer*.exe' -o -iname '*Ableton*Installer*.msi' \) \
+       -print -quit 2>/dev/null | grep -q .; then
+        live_source_error='That looks like a downloaded Ableton installer package. ENCORE needs the complete folder produced by a Windows installation.'
+        return 1
+    fi
+    for marker in Program Resources Redist Legal; do
+        if [[ ! -d $candidate/$marker || -L $candidate/$marker ]]; then
+            live_source_error="That is not a complete installed Live folder: missing or linked $marker/. Select the outer \"Live 12 Suite\" folder."
+            return 1
+        fi
+    done
+    for marker in "${required_files[@]}"; do
+        if [[ ! -f $candidate/$marker || -L $candidate/$marker || ! -s $candidate/$marker ]]; then
+            live_source_error="That is not a complete installed Live folder: missing, empty, or linked $marker."
+            return 1
+        fi
+    done
+    if find "$candidate" -mindepth 1 \
+       \( -type l -o \( ! -type f ! -type d \) \) \
+       -print -quit 2>/dev/null | grep -q .; then
+        live_source_error='The installed Live folder must be self-contained and may not contain symbolic links or special files.'
+        return 1
+    fi
+    if ! grep -Eq '"variant"[[:space:]]*:[[:space:]]*"Suite"' \
+       "$candidate/Program/Installation.cfg"; then
+        live_source_error='Program/Installation.cfg is not an Ableton Live Suite installation.'
+        return 1
+    fi
+}
+
+find_live_sources()
+{
+    local directory executable candidate canonical
+    local -A seen=()
+    live_source_candidates=()
     for directory in "$HOME/Downloads" "$HOME/Desktop" "$HOME/Documents"; do
         [[ -d $directory ]] || continue
-        while IFS= read -r -d '' candidate; do
-            installer_candidates+=("$candidate")
-            ((${#installer_candidates[@]} < 8)) || return
-        done < <(find "$directory" -maxdepth 3 -type f \
-            \( -iname '*ableton*live*12*.exe' -o -iname '*ableton*live*12*.msi' \) \
-            -print0 2>/dev/null)
+        while IFS= read -r -d '' executable; do
+            candidate=$(dirname -- "$(dirname -- "$executable")")
+            validate_live_source "$candidate" || continue
+            canonical=$(readlink -f -- "$candidate" 2>/dev/null || printf '%s' "$candidate")
+            [[ -z ${seen[$canonical]+x} ]] || continue
+            seen[$canonical]=1
+            live_source_candidates+=("$candidate")
+            ((${#live_source_candidates[@]} < 8)) || return
+        done < <(find "$directory" -maxdepth 10 -type f \
+            -ipath "*/Live 12 Suite/$ABLETON_EXE_RELATIVE" -print0 2>/dev/null)
     done
 }
 
-choose_installer()
+choose_live_source()
 {
     local choice entered index
-    find_installers
-    heading 'Ableton installer'
-    say 'ENCORE does not download Ableton. Choose the installer from your licensed Ableton account.'
-    if ((${#installer_candidates[@]})); then
-        say 'I found these likely installers:'
-        for index in "${!installer_candidates[@]}"; do
-            printf '  %d) %s\n' "$((index + 1))" "${installer_candidates[index]}"
+    find_live_sources
+    heading 'Ableton Live source'
+    say 'Select the complete "Live 12 Suite" application folder from an installed'
+    say 'Windows copy, normally C:\ProgramData\Ableton\Live 12 Suite, or the same'
+    say 'complete application folder extracted another way from your licensed copy.'
+    say 'It must contain Program, Resources, Redist, and Legal.'
+    say 'Do not select a downloaded installer, a lone .exe, or Program by itself.'
+    if ((${#live_source_candidates[@]})); then
+        say 'I found these complete Live folders:'
+        for index in "${!live_source_candidates[@]}"; do
+            printf '  %d) %s\n' "$((index + 1))" "${live_source_candidates[index]}"
         done
-        say "  $(( ${#installer_candidates[@]} + 1 ))) Enter another path"
+        say "  $(( ${#live_source_candidates[@]} + 1 ))) Enter another path"
         while true; do
-            read -r -p 'Choose an installer: ' choice
+            read -r -p 'Choose a Live folder: ' choice
             case $choice in
                 q|Q|quit|cancel) cancelled=1; exit 130 ;;
             esac
-            if [[ $choice =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#installer_candidates[@]})); then
-                installer=${installer_candidates[choice - 1]}
+            if [[ $choice =~ ^[0-9]+$ ]] &&
+               ((choice >= 1 && choice <= ${#live_source_candidates[@]})); then
+                live_source=${live_source_candidates[choice - 1]}
                 return
             fi
-            if [[ $choice == $(( ${#installer_candidates[@]} + 1 )) ]]; then
+            if [[ $choice == $(( ${#live_source_candidates[@]} + 1 )) ]]; then
                 break
             fi
             warn 'Choose one of the listed numbers.'
@@ -620,25 +715,18 @@ choose_installer()
     fi
 
     while true; do
-        read -r -p 'Path to the Ableton Live 12 installer (you can drag the file here): ' entered
+        read -r -p 'Path to the complete "Live 12 Suite" folder (you can drag the folder here): ' entered
         case ${entered,,} in q|quit|cancel) cancelled=1; exit 130 ;; esac
         entered=$(clean_path_input "$entered") || {
             warn 'That file URL could not be read.'
             continue
         }
         entered=$(absolute_path "$entered")
-        if [[ -f $entered ]]; then
-            installer=$entered
-            case ${installer,,} in
-                *.exe|*.msi) ;;
-                *)
-                    warn 'The selected file is not named .exe or .msi.'
-                    ask_yes_no 'Use it anyway?' no || continue
-                    ;;
-            esac
+        if validate_live_source "$entered"; then
+            live_source=$entered
             return
         fi
-        warn "File not found: $entered"
+        warn "$live_source_error"
     done
 }
 
@@ -646,7 +734,7 @@ wine_build_ready()
 {
     local candidate=$1 build_dir stamp expected_hash definition config
     local runtime_root manifest glibc_max
-    local -a runtime_records=()
+    local -a runtime_records=() configured_pe_archs=()
     [[ -x $candidate ]] || return 1
     [[ $("$candidate" --version 2>/dev/null) == wine-11.13 ]] || return 1
     expected_hash=$(sha256sum "$ROOT/patches/encore-wine.patch" | awk '{print $1}')
@@ -658,25 +746,36 @@ wine_build_ready()
         [[ -x $runtime_root/bin/wineserver ]] || return 1
         for config in \
             lib/wine/x86_64-unix/ntdll.so \
-            lib/wine/x86_64-unix/dxgi.dll.so \
             lib/wine/x86_64-unix/winex11.so \
             lib/wine/x86_64-unix/winegstreamer.so \
             lib/wine/x86_64-unix/winepulse.so \
             lib/wine/x86_64-unix/winevulkan.so \
             lib/wine/x86_64-unix/comdlg32.so \
+            lib/wine/x86_64-windows/ntdll.dll \
+            lib/wine/x86_64-windows/wow64.dll \
+            lib/wine/x86_64-windows/wow64cpu.dll \
+            lib/wine/x86_64-windows/wow64win.dll \
+            lib/wine/x86_64-windows/dxgi.dll \
+            lib/wine/i386-windows/ntdll.dll \
+            lib/wine/i386-windows/kernel32.dll \
+            lib/wine/i386-windows/dxgi.dll \
+            lib/wine/i386-windows/cmd.exe \
+            lib/wine/i386-windows/wineboot.exe \
             share/wine/wine.inf
         do
             [[ -f $runtime_root/$config ]] || return 1
         done
+        [[ ! -e $runtime_root/lib/wine/i386-unix ]] || return 1
         mapfile -t runtime_records <"$manifest"
-        [[ ${#runtime_records[@]} -eq 7 ]] || return 1
+        [[ ${#runtime_records[@]} -eq 8 ]] || return 1
         [[ ${runtime_records[0]} == ENCORE_WINE_RUNTIME_V1 ]] || return 1
         [[ ${runtime_records[1]} == "encore_version=$ENCORE_RELEASE_VERSION" ]] || return 1
         [[ ${runtime_records[2]} == wine_version=11.13 ]] || return 1
         [[ ${runtime_records[3]} == "wine_revision=$WINE_REVISION" ]] || return 1
         [[ ${runtime_records[4]} == "patch_sha256=$expected_hash" ]] || return 1
         [[ ${runtime_records[5]} == arch=x86_64 ]] || return 1
-        [[ ${runtime_records[6]} =~ ^glibc_max=([0-9]+\.[0-9]+)$ ]] || return 1
+        [[ ${runtime_records[6]} == pe_archs=i386,x86_64 ]] || return 1
+        [[ ${runtime_records[7]} =~ ^glibc_max=([0-9]+\.[0-9]+)$ ]] || return 1
         glibc_max=${BASH_REMATCH[1]}
         [[ $(printf '%s\n' "$glibc_max" 2.35 | sort -V | tail -n 1) == 2.35 ]] ||
             return 1
@@ -685,12 +784,27 @@ wine_build_ready()
 
     build_dir=$(dirname -- "$candidate")
     [[ -x $build_dir/server/wineserver ]] || return 1
-    [[ -f $build_dir/dlls/dxgi/dxgi.dll.so ]] || return 1
     [[ -f $build_dir/dlls/winex11.drv/winex11.so ]] || return 1
     [[ -f $build_dir/dlls/winegstreamer/winegstreamer.so ]] || return 1
     [[ -f $build_dir/dlls/winepulse.drv/winepulse.so ]] || return 1
     [[ -f $build_dir/dlls/winevulkan/winevulkan.so ]] || return 1
     [[ -f $build_dir/dlls/comdlg32/comdlg32.so ]] || return 1
+    [[ -f $build_dir/dlls/ntdll/x86_64-windows/ntdll.dll ]] || return 1
+    [[ -f $build_dir/dlls/wow64/x86_64-windows/wow64.dll ]] || return 1
+    [[ -f $build_dir/dlls/wow64cpu/x86_64-windows/wow64cpu.dll ]] || return 1
+    [[ -f $build_dir/dlls/wow64win/x86_64-windows/wow64win.dll ]] || return 1
+    [[ -f $build_dir/dlls/dxgi/x86_64-windows/dxgi.dll ]] || return 1
+    [[ -f $build_dir/dlls/ntdll/i386-windows/ntdll.dll ]] || return 1
+    [[ -f $build_dir/dlls/kernel32/i386-windows/kernel32.dll ]] || return 1
+    [[ -f $build_dir/dlls/dxgi/i386-windows/dxgi.dll ]] || return 1
+    [[ -f $build_dir/programs/cmd/i386-windows/cmd.exe ]] || return 1
+    [[ -f $build_dir/programs/wineboot/i386-windows/wineboot.exe ]] || return 1
+
+    grep -Fqx 'HOST_ARCH = x86_64' "$build_dir/Makefile" || return 1
+    read -r -a configured_pe_archs <<<"$(sed -n 's/^PE_ARCHS = *//p' "$build_dir/Makefile")"
+    [[ ${#configured_pe_archs[@]} -eq 2 &&
+       ${configured_pe_archs[0]} == i386 &&
+       ${configured_pe_archs[1]} == x86_64 ]] || return 1
 
     config=$build_dir/include/config.h
     [[ -f $config ]] || return 1
@@ -773,10 +887,207 @@ run_logged()
     ok "$label complete"
 }
 
-install_ableton()
+initialize_wine_prefix()
 {
     mkdir -p "$prefix"
-    WINEPREFIX="$prefix" WINEDEBUG=${WINEDEBUG:--all} "$wine" "$installer"
+    if ! WINEPREFIX="$prefix" WINEDEBUG=${WINEDEBUG:--all} \
+         "$wine" wineboot.exe -u; then
+        warn 'Wine requested a second prefix initialization pass.'
+        if ! WINEPREFIX="$prefix" WINEDEBUG=${WINEDEBUG:--all} \
+             "$wine" wineboot.exe -u; then
+            error 'Wine prefix initialization failed twice.'
+            return 1
+        fi
+    fi
+    [[ -f $prefix/user.reg && -f $prefix/system.reg ]] || {
+        error 'Wine did not finish initializing the prefix.'
+        return 1
+    }
+}
+
+import_live_files()
+(
+    set -Eeuo pipefail
+    local destination_parent staging backup=
+    local backup_moved=0 new_published=0 committed=0 status cleanup_failed
+    destination_parent=$(dirname -- "$live_destination")
+    mkdir -p "$destination_parent"
+    staging=$(mktemp -d "$destination_parent/.encore-live-staging.XXXXXX")
+
+    cleanup_import()
+    {
+        status=$?
+        trap - EXIT HUP INT TERM
+        set +e
+        cleanup_failed=0
+        if [[ -n ${staging:-} && -e $staging ]]; then
+            if ! rm -rf -- "$staging"; then
+                error "Could not remove incomplete staged copy: $staging"
+                cleanup_failed=1
+            fi
+        fi
+        if [[ $backup_moved -eq 1 && $committed -eq 0 && -e $backup ]]; then
+            if [[ $new_published -eq 1 && -e $live_destination ]]; then
+                if ! rm -rf -- "$live_destination"; then
+                    error "Could not remove the incomplete replacement: $live_destination"
+                    cleanup_failed=1
+                fi
+            fi
+            if [[ ! -e $live_destination ]]; then
+                if ! mv -- "$backup" "$live_destination"; then
+                    error "Could not restore the previous Live folder from $backup"
+                    cleanup_failed=1
+                fi
+            elif [[ -e $backup ]]; then
+                error "The previous Live folder is still safe at $backup"
+                cleanup_failed=1
+            fi
+        fi
+        if [[ $status -eq 0 && $cleanup_failed -ne 0 ]]; then
+            status=1
+        fi
+        exit "$status"
+    }
+    trap cleanup_import EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
+    say "Copying the complete installed Live folder from $live_source"
+    cp -a --reflink=auto --no-preserve=ownership -- "$live_source/." "$staging/"
+    if ! validate_live_source "$staging"; then
+        error "The staged Live copy failed validation: $live_source_error"
+        return 1
+    fi
+
+    if [[ -e $live_destination || -L $live_destination ]]; then
+        if [[ $replace_live -ne 1 ]]; then
+            error "Ableton Live already exists at $live_destination"
+            return 1
+        fi
+        backup=$(mktemp -d "$destination_parent/.encore-live-backup.XXXXXX")
+        rmdir -- "$backup"
+        trap '' HUP INT TERM
+        if mv -- "$live_destination" "$backup"; then
+            backup_moved=1
+        else
+            trap 'exit 129' HUP
+            trap 'exit 130' INT
+            trap 'exit 143' TERM
+            return 1
+        fi
+    fi
+
+    if mv -- "$staging" "$live_destination"; then
+        staging=
+        new_published=1
+    else
+        trap 'exit 129' HUP
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+        return 1
+    fi
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    if ! validate_live_source "$live_destination"; then
+        error "The imported Live folder failed validation: $live_source_error"
+        return 1
+    fi
+    [[ -s $ableton ]] || {
+        error "The imported Ableton executable was not found at $ableton"
+        return 1
+    }
+
+    committed=1
+    if [[ $backup_moved -eq 1 ]]; then
+        rm -rf -- "$backup"
+        backup=
+    fi
+    trap - EXIT HUP INT TERM
+)
+
+vc_runtime_ready()
+{
+    local filename path
+    for filename in vcruntime140.dll vcruntime140_1.dll msvcp140.dll msvcp140_1.dll; do
+        path="$prefix/drive_c/windows/system32/$filename"
+        [[ -s $path ]] || return 1
+        grep -aFq 'Wine placeholder DLL' "$path" && return 1
+    done
+    return 0
+}
+
+webview2_ready()
+{
+    local application_dir="$prefix/drive_c/Program Files (x86)/Microsoft/EdgeWebView/Application"
+    local executable version_dir
+    local -a executables
+    [[ -d $application_dir ]] || return 1
+    executables=("$application_dir"/*/msedgewebview2.exe)
+    for executable in "${executables[@]}"; do
+        [[ -s $executable ]] || continue
+        version_dir=${executable%/*}
+        [[ -s $version_dir/msedge.dll &&
+           -s $version_dir/icudtl.dat &&
+           -s $version_dir/Installer/setup.exe ]] || continue
+        return 0
+    done
+    return 1
+}
+
+install_vc_runtime()
+{
+    local setup="$live_destination/Redist/vc_redist.exe" status=0
+    if vc_runtime_ready; then
+        say 'Microsoft Visual C++ runtime is already installed'
+        return 0
+    fi
+    [[ -s $setup ]] || {
+        error "Visual C++ setup is missing from the imported Live folder: $setup"
+        return 1
+    }
+    WINEPREFIX="$prefix" WINEDEBUG=${WINEDEBUG:--all} \
+        "$wine" "$setup" /install /quiet /norestart || status=$?
+    case $status in
+        0|102|194) ;;
+        *)
+            error "Visual C++ setup failed with exit status $status"
+            return "$status"
+            ;;
+    esac
+    vc_runtime_ready || {
+        error 'Visual C++ setup finished, but the required runtime files were not installed.'
+        return 1
+    }
+}
+
+install_webview2_runtime()
+{
+    local setup="$live_destination/Redist/MicrosoftEdgeWebview2Setup.exe"
+    local attempt status=0
+    if webview2_ready; then
+        say 'Microsoft Edge WebView2 Runtime is already installed'
+        return 0
+    fi
+    [[ -s $setup ]] || {
+        error "WebView2 setup is missing from the imported Live folder: $setup"
+        return 1
+    }
+    say 'WebView2 setup may download the runtime and requires an internet connection.'
+    WINEPREFIX="$prefix" WINEDEBUG=${WINEDEBUG:--all} \
+        "$wine" "$setup" /silent /install || status=$?
+    for attempt in {1..90}; do
+        webview2_ready && return 0
+        sleep 2
+    done
+    webview2_ready && return 0
+    if [[ $status -ne 0 ]]; then
+        error "WebView2 setup failed with exit status $status"
+        return "$status"
+    fi
+    error 'WebView2 did not finish installing. Check the internet connection, then rerun ENCORE.'
+    return 1
 }
 
 verify_external_wine()
@@ -797,7 +1108,11 @@ verify_installation()
     local saved_prefix saved_wine saved_ableton
 
     [[ -x $wine ]] || die "Wine verification failed: $wine"
-    [[ -f $ableton ]] || die "Ableton verification failed: $ableton"
+    validate_live_source "$live_destination" ||
+        die "Ableton verification failed: $live_source_error"
+    [[ -s $ableton ]] || die "Ableton verification failed: $ableton"
+    vc_runtime_ready || die 'Visual C++ runtime verification failed'
+    webview2_ready || die 'WebView2 Runtime verification failed'
     [[ -f $prefix/drive_c/windows/Fonts/ENCOREArial.ttf ]] ||
         die 'WebView font verification failed'
     [[ -f $runtime_file ]] || die "Launcher configuration verification failed: $runtime_file"
@@ -880,20 +1195,21 @@ show_system_summary()
 
 normalize_configuration()
 {
-    local canonical_prefix canonical_ableton
+    local canonical_prefix canonical_ableton canonical_live_destination cleaned_source
 
     [[ -n $prefix ]] || die 'The Wine prefix path may not be empty'
     [[ -n $wine ]] || die 'The Wine executable path may not be empty'
     reject_path_controls 'Wine prefix path' "$prefix"
     reject_path_controls 'Wine executable path' "$wine"
     [[ -z $ableton ]] || reject_path_controls 'Ableton executable path' "$ableton"
-    [[ -z $installer ]] || reject_path_controls 'Ableton installer path' "$installer"
+    [[ -z $live_source ]] || reject_path_controls 'Ableton Live source folder' "$live_source"
     prefix=$(absolute_path "$prefix")
     wine=$(absolute_path "$wine")
+    default_ableton="$prefix/$ABLETON_RELATIVE"
     if [[ -n $ableton ]]; then
         ableton=$(absolute_path "$ableton")
     else
-        ableton="$prefix/$ABLETON_RELATIVE"
+        ableton=$default_ableton
     fi
     canonical_prefix=$(readlink -m -- "$prefix") ||
         die "Could not resolve the Wine prefix path: $prefix"
@@ -903,7 +1219,72 @@ normalize_configuration()
         "$canonical_prefix"/*) ;;
         *) die "The Ableton executable must be inside the selected Wine prefix: $prefix" ;;
     esac
-    [[ -z $installer ]] || installer=$(absolute_path "$(clean_path_input "$installer")")
+    [[ ${ableton##*/} == 'Ableton Live 12 Suite.exe' ]] ||
+        die 'The Ableton executable must be named "Ableton Live 12 Suite.exe"'
+    [[ $(basename -- "$(dirname -- "$ableton")") == Program ]] ||
+        die 'The Ableton executable must be inside its Live 12 Suite/Program folder.'
+    live_destination=$(dirname -- "$(dirname -- "$ableton")")
+    canonical_live_destination=$(readlink -m -- "$live_destination") ||
+        die "Could not resolve the Ableton Live folder: $live_destination"
+    case $canonical_live_destination in
+        "$canonical_prefix"/*) ;;
+        *) die 'The complete Ableton Live folder must be a child of the selected Wine prefix.' ;;
+    esac
+    if [[ -n $live_source ]]; then
+        cleaned_source=$(clean_path_input "$live_source") ||
+            die 'The Ableton Live source file URL could not be read.'
+        [[ -n $cleaned_source ]] || die 'The Ableton Live source folder may not be empty'
+        live_source=$(absolute_path "$cleaned_source")
+    fi
+}
+
+validate_import_paths()
+{
+    local canonical_source canonical_destination canonical_ableton canonical_default_ableton
+    canonical_ableton=$(readlink -m -- "$ableton") ||
+        die "Could not resolve the Ableton executable path: $ableton"
+    canonical_default_ableton=$(readlink -m -- "$default_ableton") ||
+        die "Could not resolve the standard Ableton destination: $default_ableton"
+    [[ $canonical_ableton == "$canonical_default_ableton" ]] ||
+        die '--live-dir imports only into the standard prefix location. Omit --ableton when importing a Live folder.'
+    canonical_source=$(readlink -f -- "$live_source" 2>/dev/null) ||
+        die "Could not resolve the Ableton Live source folder: $live_source"
+    canonical_destination=$(readlink -m -- "$live_destination") ||
+        die "Could not resolve the Ableton Live destination: $live_destination"
+    case $canonical_source in
+        "$canonical_destination"|"$canonical_destination"/*)
+            die 'The Live source folder cannot be the destination or be inside it.'
+            ;;
+    esac
+    case $canonical_destination in
+        "$canonical_source"/*)
+            die 'The Live destination cannot be inside the selected source folder.'
+            ;;
+    esac
+}
+
+inspect_live_import_space()
+{
+    local probe available_kib staging_overhead_kib prerequisite_overhead_kib=0
+    live_source_size_kib=$(du -sk -- "$live_source" 2>/dev/null | awk 'NR == 1 {print $1}')
+    [[ $live_source_size_kib =~ ^[0-9]+$ && $live_source_size_kib -gt 0 ]] ||
+        die "Could not measure the Ableton Live source folder: $live_source"
+    probe=$(dirname -- "$live_destination")
+    while [[ ! -e $probe && $probe != / ]]; do
+        probe=$(dirname -- "$probe")
+    done
+    available_kib=$(df -Pk -- "$probe" 2>/dev/null | awk 'NR == 2 {print $4}')
+    [[ $available_kib =~ ^[0-9]+$ ]] ||
+        die "Could not measure free space for the Wine prefix: $prefix"
+    staging_overhead_kib=$((live_source_size_kib / 20))
+    ((staging_overhead_kib >= 524288)) || staging_overhead_kib=524288
+    if [[ ! -e $live_destination && ! -L $live_destination ]]; then
+        prerequisite_overhead_kib=3145728
+    fi
+    live_required_space_kib=$((live_source_size_kib + staging_overhead_kib + prerequisite_overhead_kib))
+    if ((available_kib < live_required_space_kib)); then
+        die "Not enough free space for Live and its Wine prerequisites. Need about $(((live_required_space_kib + 1048575) / 1048576)) GiB, but only $(((available_kib + 1048575) / 1048576)) GiB is available."
+    fi
 }
 
 prefix_has_content()
@@ -990,50 +1371,85 @@ runtime_config_path()
 
 prepare_choices()
 {
-    local existing_live=0 reuse_decided=0
-    [[ -f $ableton ]] && existing_live=1
+    local existing_live=0 incomplete_live=0 reuse_decided=0
 
-    [[ $build_only -eq 1 ]] || inspect_prefix_safety
-
-    if [[ $reinstall_ableton -eq 1 && -z $installer ]]; then
-        die '--reinstall-ableton requires --installer FILE'
-    fi
-
-    if [[ $existing_live -eq 1 && -n $installer && $reinstall_ableton -eq 0 ]]; then
-        heading 'Existing Ableton installation'
-        ok "Found Ableton Live at $ableton"
-        if [[ $interactive -eq 1 ]]; then
-            if ask_yes_no 'Reuse it and skip the Ableton installer?' yes; then
-                installer=
-                reuse_decided=1
+    if [[ $build_only -eq 0 ]]; then
+        inspect_prefix_safety
+        if [[ -e $live_destination || -L $live_destination ]]; then
+            if validate_live_source "$live_destination"; then
+                existing_live=1
             else
-                reinstall_ableton=1
+                incomplete_live=1
             fi
-        else
-            info 'Reusing it so this command can be safely retried; use --reinstall-ableton to override.'
-            installer=
-            reuse_decided=1
         fi
-    fi
 
-    if [[ $build_only -eq 0 && -z $installer ]]; then
-        if [[ $existing_live -eq 1 ]]; then
-            if [[ $interactive -eq 1 && $reuse_decided -eq 0 ]]; then
-                heading 'Existing Ableton installation'
-                ok "Found Ableton Live at $ableton"
-                if ! ask_yes_no 'Reuse this installation?' yes; then
-                    choose_installer
+        if [[ $replace_live -eq 1 && -z $live_source ]]; then
+            die '--replace-live requires --live-dir DIR'
+        fi
+
+        if [[ $existing_live -eq 1 && -n $live_source && $replace_live -eq 0 ]]; then
+            heading 'Existing Ableton installation'
+            ok "Found a complete Ableton Live installation at $live_destination"
+            if [[ $interactive -eq 1 ]]; then
+                if ask_yes_no 'Reuse it and ignore the supplied source folder?' yes; then
+                    live_source=
+                    reuse_decided=1
+                else
+                    replace_live=1
+                fi
+            else
+                info 'Reusing it for a safe retry; use --replace-live to replace it explicitly.'
+                live_source=
+                reuse_decided=1
+            fi
+        fi
+
+        if [[ $incomplete_live -eq 1 ]]; then
+            heading 'Incomplete Ableton folder'
+            warn "The existing folder is incomplete: $live_destination"
+            warn "$live_source_error"
+            if [[ $interactive -eq 0 && $replace_live -eq 0 ]]; then
+                die 'Refusing to merge into an incomplete Live folder. Rerun with --replace-live and --live-dir DIR.'
+            fi
+            if [[ -z $live_source ]]; then
+                if [[ $interactive -eq 1 ]]; then
+                    choose_live_source
+                else
+                    die 'Ableton is not installed. Supply --live-dir "/path/to/Live 12 Suite".'
                 fi
             fi
-        elif [[ $interactive -eq 1 ]]; then
-            choose_installer
-        else
-            die 'Ableton is not installed. Supply --installer "/path/to/Ableton installer.exe".'
+            if [[ $replace_live -eq 0 ]]; then
+                ask_yes_no 'Replace the incomplete folder with the selected complete copy?' no ||
+                    die 'The incomplete Live folder was left unchanged.'
+                replace_live=1
+            fi
         fi
-    fi
 
-    if [[ -n $installer && ! -f $installer ]]; then
-        die "Ableton installer not found: $installer"
+        if [[ -z $live_source ]]; then
+            if [[ $existing_live -eq 1 ]]; then
+                if [[ $interactive -eq 1 && $reuse_decided -eq 0 ]]; then
+                    heading 'Existing Ableton installation'
+                    ok "Found a complete Ableton Live installation at $live_destination"
+                    if ! ask_yes_no 'Reuse this installation?' yes; then
+                        choose_live_source
+                        replace_live=1
+                    fi
+                fi
+            elif [[ $interactive -eq 1 ]]; then
+                choose_live_source
+            else
+                die 'Ableton is not installed. Supply --live-dir "/path/to/Live 12 Suite".'
+            fi
+        fi
+
+        if [[ -n $live_source ]]; then
+            validate_live_source "$live_source" || die "$live_source_error"
+            validate_import_paths
+            inspect_live_import_space
+        fi
+    else
+        live_source=
+        replace_live=0
     fi
 
     if [[ $build_mode == auto ]]; then
@@ -1107,7 +1523,12 @@ show_plan()
     else
         say "  Wine prefix:        $prefix"
         say "  Ableton:            $ableton"
-        say "  Ableton installer:  ${installer:-reuse existing installation}"
+        say "  Ableton source:     ${live_source:-reuse existing prefix copy}"
+        if [[ -n $live_source ]]; then
+            say "  Import size:        about $(((live_source_size_kib + 1048575) / 1048576)) GiB"
+            say "  Free space needed:  about $(((live_required_space_kib + 1048575) / 1048576)) GiB"
+            say "  Existing Live:      $([[ $replace_live -eq 1 ]] && printf 'replace safely' || printf 'not present')"
+        fi
         say "  Display scaling:    $dpi DPI ($((dpi * 100 / 96))% approximate)"
         say "  Application menu:   $([[ $install_desktop -eq 1 ]] && printf 'install/update entry' || printf 'skip')"
     fi
@@ -1121,6 +1542,9 @@ show_plan()
         else
             info 'Allow roughly 15–25 GiB and expect the first Wine build to take a while.'
         fi
+    fi
+    if [[ -n $live_source ]]; then
+        info 'Live is imported by copying the complete installed folder. WebView2 may download its runtime afterward.'
     fi
 
     if [[ $dry_run -eq 1 ]]; then
@@ -1138,12 +1562,12 @@ start_mutating_run()
     command -v flock >/dev/null 2>&1 || die 'flock is required to safely serialize installation (normally provided by util-linux)'
     mkdir -p "$ROOT/.tmp" "$ROOT/logs"
     lock_file="$ROOT/.tmp/install.lock"
-    exec {lock_fd}<>"$lock_file" || die 'Could not open the installer lock'
+    exec {lock_fd}<>"$lock_file" || die 'Could not open the setup lock'
     if ! flock -n "$lock_fd"; then
         owner=$(sed -n '1p' "$lock_file" 2>/dev/null || true)
         [[ $owner =~ ^[0-9]+$ ]] &&
-            die "Another ENCORE installer is running as process $owner"
-        die 'Another ENCORE installer is already running'
+            die "Another ENCORE setup is running as process $owner"
+        die 'Another ENCORE setup is already running'
     fi
     : >"$lock_file"
     printf '%s\n' "$$" >"$lock_file"
@@ -1209,14 +1633,17 @@ main()
     pause_for_live_to_close
     run_stage 'Register the ENCORE prefix' mark_prefix
 
-    if [[ -n $installer ]]; then
-        run_stage 'Run the Ableton installer' install_ableton
-        [[ -f $ableton ]] ||
-            die "The Ableton installer finished, but Live was not found at $ableton"
-        pause_for_live_to_close
+    if [[ -n $live_source ]]; then
+        run_stage 'Import Ableton Live files' import_live_files
+        [[ -s $ableton ]] ||
+            die "The Ableton Live files were imported, but Live was not found at $ableton"
     else
-        ok 'Reusing the existing Ableton installation'
+        ok 'Reusing Ableton Live already in the prefix'
     fi
+
+    run_stage 'Initialize the Wine prefix' initialize_wine_prefix
+    run_stage 'Install the Visual C++ runtime' install_vc_runtime
+    run_stage 'Install the WebView2 Runtime' install_webview2_runtime
 
     run_stage 'Enable host files and native folder picking' "$SCRIPTS/configure-prefix.sh"
     run_stage 'Apply display scaling' "$SCRIPTS/set-dpi.sh" "$dpi"

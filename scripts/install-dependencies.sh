@@ -82,6 +82,8 @@ case $manager in
         fi
         build_packages=(
             git build-essential flex bison pkg-config xorg-dev
+            gcc-mingw-w64-i686 g++-mingw-w64-i686
+            gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
             libfreetype-dev libfontconfig1-dev libgl-dev libvulkan-dev
             libxkbcommon-dev libwayland-dev libdbus-1-dev libpulse-dev
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
@@ -110,6 +112,7 @@ case $manager in
         fi
         build_packages=(
             git gcc gcc-c++ make flex bison pkgconf-pkg-config
+            mingw32-gcc mingw32-gcc-c++ mingw64-gcc mingw64-gcc-c++
             libX11-devel libXext-devel libXrender-devel libXrandr-devel
             libXcursor-devel libXi-devel libXcomposite-devel libXinerama-devel
             libXfixes-devel libxkbfile-devel libXxf86vm-devel
@@ -138,7 +141,8 @@ case $manager in
             runtime_packages+=(xdg-desktop-portal-gtk)
         fi
         build_packages=(
-            base-devel git flex bison pkgconf libx11 libxext libxrender
+            base-devel git flex bison pkgconf mingw-w64-gcc
+            libx11 libxext libxrender
             libxrandr libxcursor libxi libxcomposite libxinerama libxfixes
             libxkbfile libxxf86vm libxkbcommon wayland libglvnd freetype2
             dbus libpulse glib2 orc systemd-libs alsa-lib vulkan-headers
@@ -218,10 +222,14 @@ check_requirements()
     local file_chooser_portal=
     local runtime_commands=(
         python3 fc-match desktop-file-validate Xwayland gst-inspect-1.0
-        awk cmp cp curl dirname flock getconf grep head mkdir mktemp mv readlink
-        rm rmdir sed sha256sum sort tail tar tr uname xz
+        awk basename cmp cp curl df dirname du find flock getconf grep head mkdir
+        mktemp mv readlink rm rmdir sed sha256sum sleep sort tail tar tee tr uname xz
     )
-    local build_commands=(git gcc g++ make flex bison pkg-config awk grep sed nice readlink sha256sum)
+    local build_commands=(
+        git gcc g++ make flex bison pkg-config awk grep sed nice readlink sha256sum
+        i686-w64-mingw32-gcc i686-w64-mingw32-g++
+        x86_64-w64-mingw32-gcc x86_64-w64-mingw32-g++
+    )
 
     for command in "${runtime_commands[@]}"; do
         command -v "$command" >/dev/null 2>&1 || missing+=("command:$command")

@@ -48,7 +48,9 @@ escape_sed()
 
 launcher="$PROJECT_ROOT/scripts/launch-ableton.sh"
 desktop_prefix=$(make_absolute_path "$ENCORE_PREFIX")
-icon="$desktop_prefix/drive_c/ProgramData/Ableton/Live 12 Suite/Resources/Icons/live_suite.ico"
+ableton_binary=$(make_absolute_path "${ENCORE_ABLETON:-$desktop_prefix/drive_c/ProgramData/Ableton/Live 12 Suite/Program/Ableton Live 12 Suite.exe}")
+live_root=$(dirname -- "$(dirname -- "$ableton_binary")")
+icon="$live_root/Resources/Icons/live_suite.ico"
 
 exec_value="/bin/sh $(quote_exec_argument "$launcher")"
 exec_escaped=$(escape_sed "$exec_value")
