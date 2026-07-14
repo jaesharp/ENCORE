@@ -64,7 +64,7 @@ case $manager in
             apt-cache show libasound2t64 >/dev/null 2>&1 && alsa_runtime=libasound2t64
         fi
         runtime_packages=(
-            ca-certificates curl xz-utils fontconfig fonts-liberation python3
+            ca-certificates curl xz-utils diffutils fontconfig fonts-liberation python3
             python3-fonttools desktop-file-utils libdbus-1-3 libfreetype6
             libfontconfig1 libgl1 libvulkan1 libx11-6 libxcomposite1
             libxcursor1 libxext6 libxfixes3 libxi6 libxinerama1 libxrandr2
@@ -94,7 +94,7 @@ case $manager in
         ;;
     dnf)
         runtime_packages=(
-            ca-certificates curl xz fontconfig liberation-sans-fonts python3
+            ca-certificates curl xz diffutils fontconfig liberation-sans-fonts python3
             python3-fonttools desktop-file-utils dbus-libs freetype libglvnd-glx
             vulkan-loader libX11 libXcomposite libXcursor libXext libXfixes
             libXi libXinerama libXrandr libXrender pulseaudio-libs systemd-libs
@@ -126,7 +126,7 @@ case $manager in
         ;;
     pacman)
         runtime_packages=(
-            ca-certificates curl xz fontconfig ttf-liberation python
+            ca-certificates curl xz diffutils fontconfig ttf-liberation python
             python-fonttools desktop-file-utils dbus freetype2 libglvnd
             vulkan-icd-loader libx11 libxcomposite libxcursor libxext libxfixes
             libxi libxinerama libxrandr libxrender libpulse systemd-libs
