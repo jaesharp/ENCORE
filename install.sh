@@ -760,7 +760,7 @@ wine_build_ready()
             lib/wine/i386-windows/kernel32.dll \
             lib/wine/i386-windows/dxgi.dll \
             lib/wine/i386-windows/cmd.exe \
-            lib/wine/i386-windows/wineboot.exe \
+            lib/wine/x86_64-windows/wineboot.exe \
             share/wine/wine.inf
         do
             [[ -f $runtime_root/$config ]] || return 1
@@ -798,7 +798,7 @@ wine_build_ready()
     [[ -f $build_dir/dlls/kernel32/i386-windows/kernel32.dll ]] || return 1
     [[ -f $build_dir/dlls/dxgi/i386-windows/dxgi.dll ]] || return 1
     [[ -f $build_dir/programs/cmd/i386-windows/cmd.exe ]] || return 1
-    [[ -f $build_dir/programs/wineboot/i386-windows/wineboot.exe ]] || return 1
+    [[ -f $build_dir/programs/wineboot/x86_64-windows/wineboot.exe ]] || return 1
 
     grep -Fqx 'HOST_ARCH = x86_64' "$build_dir/Makefile" || return 1
     read -r -a configured_pe_archs <<<"$(sed -n 's/^PE_ARCHS = *//p' "$build_dir/Makefile")"
