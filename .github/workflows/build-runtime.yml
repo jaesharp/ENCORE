@@ -84,9 +84,9 @@ jobs:
           timeout 90 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
             "$runtime/bin/wineboot" -u
           timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
-            "$runtime/bin/wine" reg.exe query 'HKCU\\Software\\Wine'
+            "$runtime/bin/wine" reg.exe query 'HKCU\Software\Wine'
           timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
-            "$runtime/bin/winepath" 'C:\\windows'
+            "$runtime/bin/winepath" 'C:\windows'
           WINEPREFIX="$prefix" "$runtime/bin/wineserver" -k
         env:
           ENCORE_RUNTIME_ASSET: encore-wine-11.13-r1-x86_64-linux-gnu.tar.xz
@@ -171,7 +171,7 @@ jobs:
           timeout 90 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
             "$runtime/bin/wineboot" -u
           timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
-            "$runtime/bin/wine" reg.exe query 'HKCU\\Software\\Wine'
+            "$runtime/bin/wine" reg.exe query 'HKCU\Software\Wine'
           timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
-            "$runtime/bin/winepath" 'C:\\windows'
+            "$runtime/bin/winepath" 'C:\windows'
           WINEPREFIX="$prefix" "$runtime/bin/wineserver" -k
