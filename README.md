@@ -45,6 +45,7 @@ You need:
 - an x86-64 PC running Ubuntu 22.04 or newer, Debian 12 or newer, Fedora, Arch Linux, or CachyOS;
 - about 3.5 GiB of free space, plus the size of your Ableton installation;
 - an internet connection for dependencies and the first WebView2 setup;
+- permission to use sudo if ENCORE needs to install missing system packages;
 - the complete **already-installed** `Live 12 Suite` folder from your own licensed Windows installation.
 
 > [!IMPORTANT]
