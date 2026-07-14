@@ -64,7 +64,8 @@ bundle_dir="$work_dir/$bundle_name"
 mkdir -p "$stage_dir" "$runtime_dir" "$source_wine_dir" "$bundle_dir" "$output_dir"
 build_turnkey_bundle=0
 if [ -f "$PROJECT_ROOT/install.sh" ] &&
-   git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+   git -c safe.directory="$PROJECT_ROOT" -C "$PROJECT_ROOT" \
+       rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     require_command git
     build_turnkey_bundle=1
 fi
@@ -220,7 +221,8 @@ EOF
 
 if [ "$build_turnkey_bundle" -eq 1 ]; then
     say "Preparing the turnkey ENCORE bundle"
-    git -C "$PROJECT_ROOT" archive --format=tar HEAD | tar -C "$bundle_dir" -xf -
+    git -c safe.directory="$PROJECT_ROOT" -C "$PROJECT_ROOT" \
+        archive --format=tar HEAD | tar -C "$bundle_dir" -xf -
     mkdir -p "$bundle_dir/runtime"
     cp -a "$runtime_dir" "$bundle_dir/runtime/wine"
 fi

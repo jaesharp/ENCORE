@@ -8,8 +8,14 @@ on:
         required: true
         default: v0.1.0
         type: string
+      artifact_run_id:
+        description: Existing workflow run ID to validate without rebuilding Wine
+        required: false
+        default: ""
+        type: string
 
 permissions:
+  actions: read
   contents: read
   id-token: write
   attestations: write
@@ -18,6 +24,8 @@ jobs:
   build:
     name: Build on Ubuntu 22.04
     runs-on: ubuntu-22.04
+    outputs:
+      artifact_run_id: ${{ steps.artifact_run.outputs.run_id }}
     container:
       image: ubuntu:22.04
     timeout-minutes: 240
@@ -36,19 +44,41 @@ jobs:
       - name: Check out ENCORE
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+      - name: Resolve release-candidate run
+        id: artifact_run
+        shell: bash
+        env:
+          REQUESTED_RUN_ID: ${{ inputs.artifact_run_id }}
+        run: |
+          set -Eeuo pipefail
+          run_id=${REQUESTED_RUN_ID:-$GITHUB_RUN_ID}
+          [[ $run_id =~ ^[0-9]+$ ]] || {
+            echo "Invalid artifact workflow run ID: $run_id" >&2
+            exit 2
+          }
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
       - name: Install build and runtime dependencies
+        if: ${{ inputs.artifact_run_id == '' }}
         run: ./scripts/install-dependencies.sh --install build
+
+      - name: Install runtime dependencies
+        if: ${{ inputs.artifact_run_id != '' }}
+        run: ./scripts/install-dependencies.sh --install runtime
 
       - name: Install headless smoke-test tools
         run: apt-get install -y binutils xvfb xauth
 
       - name: Build patched Wine
+        if: ${{ inputs.artifact_run_id == '' }}
         run: ./scripts/build-wine.sh
 
       - name: Package runtime and corresponding source
+        if: ${{ inputs.artifact_run_id == '' }}
         run: ./scripts/package-wine-release.sh "${{ inputs.release_version }}" "$PWD/dist"
 
       - name: Upload release candidates
+        if: ${{ inputs.artifact_run_id == '' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: encore-wine-${{ inputs.release_version }}
@@ -59,10 +89,23 @@ jobs:
           compression-level: 0
           retention-days: 7
 
+      - name: Download existing release candidates
+        if: ${{ inputs.artifact_run_id != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: encore-wine-${{ inputs.release_version }}
+          path: dist
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.artifact_run.outputs.run_id }}
+
       - name: Smoke-test a fresh prefix
         shell: bash
         run: |
           set -Eeuo pipefail
+          cd dist
+          sha256sum -c SHA256SUMS
+          cd ..
           mkdir -p "$RUNNER_TEMP/encore runtime"
           tar -xJf "dist/$ENCORE_RUNTIME_ASSET" -C "$RUNNER_TEMP/encore runtime"
           runtime="$RUNNER_TEMP/encore runtime/encore-wine"
@@ -81,25 +124,41 @@ jobs:
             fi
           done < <(find "$runtime" -type f -print0)
           prefix=$(mktemp -d /tmp/encore-wine-prefix.XXXXXX)
-          timeout 90 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
-            "$runtime/bin/wineboot" -u
-          test -s "$prefix/drive_c/windows/syswow64/ntdll.dll"
-          test -s "$prefix/drive_c/windows/syswow64/cmd.exe"
           objdump -f "$runtime/lib/wine/i386-windows/cmd.exe" | \
             grep -Eq 'architecture: i386(,|$)'
-          wow64_arch=$(timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
-            "$runtime/bin/wine" 'C:\windows\syswow64\cmd.exe' /d /c \
-            'echo %PROCESSOR_ARCHITECTURE%' | tr -d '\r')
-          grep -Fqx x86 <<<"$wow64_arch"
-          timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
-            "$runtime/bin/wine" reg.exe query 'HKCU\Software\Wine'
-          timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
-            "$runtime/bin/winepath" 'C:\windows'
-          WINEPREFIX="$prefix" "$runtime/bin/wineserver" -k
+          export RUNTIME="$runtime"
+          export WINEPREFIX="$prefix"
+          export WINEDEBUG=-all
+          export WINEDLLOVERRIDES='mscoree,mshtml,winemenubuilder.exe,dcomp='
+          export XDG_CACHE_HOME="$RUNNER_TEMP/encore-wine-cache"
+          xvfb-run -a timeout --signal=TERM --kill-after=10s 90s \
+            bash -Eeuo pipefail <<'SMOKE'
+          cleanup()
+          {
+              "$RUNTIME/bin/wineserver" -k >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT HUP INT TERM
+          "$RUNTIME/bin/wineboot" -u
+          test -s "$WINEPREFIX/drive_c/windows/syswow64/ntdll.dll"
+          test -s "$WINEPREFIX/drive_c/windows/syswow64/cmd.exe"
+          wow64_arch=$(
+              "$RUNTIME/bin/wine" 'C:\windows\syswow64\cmd.exe' /d /c \
+                  'echo %PROCESSOR_ARCHITECTURE%' | tr -d '\r'
+          )
+          test "$wow64_arch" = x86
+          "$RUNTIME/bin/wine" reg.exe query 'HKCU\Software\Wine' >/dev/null
+          windows_path=$("$RUNTIME/bin/winepath" 'C:\windows' | tr -d '\r')
+          test -d "$windows_path"
+          "$RUNTIME/bin/wineserver" -k
+          "$RUNTIME/bin/wineserver" -w
+          test -s "$WINEPREFIX/system.reg"
+          trap - EXIT HUP INT TERM
+          SMOKE
         env:
           ENCORE_RUNTIME_ASSET: encore-wine-11.13-r1-x86_64-linux-gnu.tar.xz
 
       - name: Attest release candidates
+        if: ${{ inputs.artifact_run_id == '' }}
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: dist/*.tar.xz
@@ -143,6 +202,9 @@ jobs:
         with:
           name: encore-wine-${{ inputs.release_version }}
           path: dist
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.build.outputs.artifact_run_id }}
 
       - name: Install distro runtime dependencies
         run: ./scripts/install-dependencies.sh --install runtime
@@ -176,18 +238,33 @@ jobs:
             fi
           done < <(find "$runtime" -type f -print0)
           prefix=$(mktemp -d /tmp/encore-wine-prefix.XXXXXX)
-          timeout 90 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
-            "$runtime/bin/wineboot" -u
-          test -s "$prefix/drive_c/windows/syswow64/ntdll.dll"
-          test -s "$prefix/drive_c/windows/syswow64/cmd.exe"
           objdump -f "$runtime/lib/wine/i386-windows/cmd.exe" | \
             grep -Eq 'architecture: i386(,|$)'
-          wow64_arch=$(timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
-            "$runtime/bin/wine" 'C:\windows\syswow64\cmd.exe' /d /c \
-            'echo %PROCESSOR_ARCHITECTURE%' | tr -d '\r')
-          grep -Fqx x86 <<<"$wow64_arch"
-          timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
-            "$runtime/bin/wine" reg.exe query 'HKCU\Software\Wine'
-          timeout 30 xvfb-run -a env WINEPREFIX="$prefix" WINEDEBUG=-all \
-            "$runtime/bin/winepath" 'C:\windows'
-          WINEPREFIX="$prefix" "$runtime/bin/wineserver" -k
+          export RUNTIME="$runtime"
+          export WINEPREFIX="$prefix"
+          export WINEDEBUG=-all
+          export WINEDLLOVERRIDES='mscoree,mshtml,winemenubuilder.exe,dcomp='
+          export XDG_CACHE_HOME="$RUNNER_TEMP/encore-wine-cache"
+          xvfb-run -a timeout --signal=TERM --kill-after=10s 90s \
+            bash -Eeuo pipefail <<'SMOKE'
+          cleanup()
+          {
+              "$RUNTIME/bin/wineserver" -k >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT HUP INT TERM
+          "$RUNTIME/bin/wineboot" -u
+          test -s "$WINEPREFIX/drive_c/windows/syswow64/ntdll.dll"
+          test -s "$WINEPREFIX/drive_c/windows/syswow64/cmd.exe"
+          wow64_arch=$(
+              "$RUNTIME/bin/wine" 'C:\windows\syswow64\cmd.exe' /d /c \
+                  'echo %PROCESSOR_ARCHITECTURE%' | tr -d '\r'
+          )
+          test "$wow64_arch" = x86
+          "$RUNTIME/bin/wine" reg.exe query 'HKCU\Software\Wine' >/dev/null
+          windows_path=$("$RUNTIME/bin/winepath" 'C:\windows' | tr -d '\r')
+          test -d "$windows_path"
+          "$RUNTIME/bin/wineserver" -k
+          "$RUNTIME/bin/wineserver" -w
+          test -s "$WINEPREFIX/system.reg"
+          trap - EXIT HUP INT TERM
+          SMOKE
