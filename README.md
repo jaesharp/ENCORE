@@ -120,6 +120,16 @@ Live's **Settings > Plug-ins > VST3 Custom Folder > Browse** control uses the na
 - DirectComposition is disabled; Learn View uses SwiftShader and CPU compositing.
 - ENCORE builds Wine locally and does not provide prebuilt binaries or an Ableton installer.
 
+## Bug reports and next steps
+
+We love bug reports. ENCORE covers an unusual mix of Wine, desktop integration, audio, plug-ins, graphics, and hardware, so real-world reports are one of the best ways to make it better. If something breaks, [open a GitHub issue](https://github.com/wowitsjack/ENCORE/issues) with your Linux distribution, desktop/session, GPU, the steps that trigger the problem, and the relevant ENCORE log. Please remove personal information and do not upload Ableton installers, Live content, or other licensed files.
+
+The next areas of development are:
+
+- Ableton Push support, including reliable discovery and communication with Push hardware;
+- broader USB and MIDI setup, permissions, and hot-plug handling across supported distributions;
+- continued compatibility work for plug-ins, WebView2, graphics, audio, and non-GNOME desktops.
+
 ## Licensing and bundled material
 
 ENCORE does not redistribute Ableton software. `patches/encore-wine.patch` is a source delta against the pinned upstream Wine revision and remains subject to the applicable upstream file licenses.
