@@ -1,0 +1,53 @@
+ENCORE WineASIO patch -- keep the backend sample rate instead of ASE_NoClock
+
+Ported from shibco/ableton-linux patches/wineasio/0001-asio-keep-backend-sample-
+rate-instead-of-ASE_NoClock.patch (shibco / shibacomputer, cade@parare.al) -- a
+fix to GPL-2.0+ WineASIO's asio.c. Applies to WineASIO 1.3.0
+(b5e668103ad13e6f51f4118ed7090592213e5ca2).
+
+WineASIO cannot change the backend (JACK/PipeWire) graph rate; many machines run
+a single fixed rate. Returning ASE_NoClock on a sample-rate mismatch is what the
+ASIO spec suggests, but Ableton Live treats the refusal as fatal -- it throws out
+of its OnSetSampleRate handler, the exception is uncaught, and Live dies during
+startup, before its Preferences dialog exists, so the user can never reach the
+control that would fix the rate. A fresh install lands in a permanent crash loop
+(Live defaults to 44.1 kHz, PipeWire to 48 kHz). Instead, stay at the backend
+rate and report success; hosts read the effective rate back with GetSampleRate
+(Live does exactly that), so the engine runs at the graph's real rate.
+
+diff --git a/asio.c b/asio.c
+index 310b840..4d529a0 100644
+--- a/asio.c
++++ b/asio.c
+@@ -805,8 +805,29 @@ HIDDEN LONG STDMETHODCALLTYPE SetSampleRate(LPWINEASIO iface, double sampleRate)
+ 
+     TRACE("iface: %p, Sample rate %f requested\n", iface, sampleRate);
+ 
+-    if (sampleRate != This->host_sample_rate)
+-        return -995;
++    if (sampleRate == This->host_sample_rate)
++        return 0;
++
++    /* The backend (JACK/PipeWire) owns the graph rate and a client cannot
++     * change it; on many machines the hardware has exactly one usable rate
++     * (the Steam Deck's codec runs at 48 kHz only, and forcing PipeWire to
++     * 44.1 kHz stalls the graph outright).
++     *
++     * Returning ASE_NoClock here is what the ASIO spec suggests, but Ableton
++     * Live treats the refusal as fatal: it throws out of its OSetSampleRate
++     * message handler, the exception goes uncaught, and Live dies during
++     * startup -- before its Preferences dialog exists, so the user can never
++     * reach the control that would fix the rate. A fresh install therefore
++     * lands in a permanent crash loop (Live defaults to 44.1 kHz, PipeWire to
++     * 48 kHz).
++     *
++     * Stay at the backend rate and report success instead. Hosts read the
++     * effective rate back with GetSampleRate -- Live does exactly that, and
++     * logs "Open: Used SampleRate: 48000" -- so the engine runs at the rate
++     * the audio graph is really using, at the correct pitch. */
++    WARN("host asked for %.0f Hz; the backend runs at %.0f Hz -- keeping the "
++         "backend rate (wineasio-clamp-sample-rate)\n",
++         sampleRate, This->host_sample_rate);
+     return 0;
+ }
+ 
