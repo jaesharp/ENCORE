@@ -53,7 +53,7 @@ feature) much easier to read.
 
 The patch set lives as a numbered series in [`patches/wine/`](../../patches/wine/),
 applied in order by `bootstrap-wine.sh`. The first six subsystems (`10`–`60`) are
-ENCORE's original delta; three further patches (`70`–`90`) are ported from
+ENCORE's original delta; four further patches (`70`–`100`) are ported from
 **shibco/ableton-linux** (LGPL Wine fixes, attributed in each patch header and
 page). Each subsystem has its own page.
 
@@ -68,6 +68,7 @@ page). Each subsystem has its own page.
 | [audio-endpoint-friendlyname.md](audio-endpoint-friendlyname.md) | mmdevapi endpoint FriendlyName re-wrap crash fix *(shibco)* | `dlls/mmdevapi/devenum.c` |
 | [midi-hotplug.md](midi-hotplug.md) | MIDI controller hotplug re-subscribe *(shibco)* | `dlls/winealsa.drv/alsamidi.c` |
 | [opengl-srgb.md](opengl-srgb.md) | EGL sRGB-capable pixel formats *(shibco)* | `dlls/win32u/opengl.c`, `dlls/winex11.drv/opengl.c` |
+| [push2-display.md](push2-display.md) | Ableton Push 2 display over host USB (libusb-1.0 bridge) *(shibco)* | `dlls/libusb-1.0/*` |
 
 ## Full diffstat by subsystem
 

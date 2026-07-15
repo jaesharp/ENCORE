@@ -69,6 +69,7 @@ any failure, with a quoted retry command); launch log `logs/ableton-dock.log`.
 | Live crashes at startup right after opening audio | An older runtime nested an audio endpoint's registry name without bound (`Speakers (Speakers (…))`) | Fixed going forward by [audio-endpoint-friendlyname.md](patches/audio-endpoint-friendlyname.md); heal an already-corrupt prefix **once** with `wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\MMDevices\Audio' /f`, then relaunch. |
 | A MIDI controller (Push included) goes dead after an in-session unplug/replug | ALSA dropped the subscription on unplug | Re-subscribed automatically by [midi-hotplug.md](patches/midi-hotplug.md) **if the device was present when Live started**; a never-before-seen device still needs a Live restart. |
 | A plugin editor crashes Live as it opens (needs an sRGB framebuffer) | The GUI requires `WGL_FRAMEBUFFER_SRGB_CAPABLE`, unadvertised in stock Wine | Advertised by [opengl-srgb.md](patches/opengl-srgb.md); make sure your runtime includes patch `90` (any current source build does). |
+| Push 2's screen stays dark although its pads/MIDI work | Wine's WinUSB can't open the Push 2 display (bulk) interface | ENCORE routes `Push2DisplayProcess.exe` through a `libusb-1.0` bridge — see [push2-display.md](patches/push2-display.md); confirm the prefix was configured (`configure-prefix.sh`) and your runtime includes patch `100`. |
 
 ## Reporting
 
