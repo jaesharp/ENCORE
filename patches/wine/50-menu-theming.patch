@@ -1,0 +1,291 @@
+diff --git a/dlls/user32/tests/menu.c b/dlls/user32/tests/menu.c
+index 6862f13c6b16424b523eb1ed14b2360b0274defe..8640f299800fa224bc014c3dba1e9cfc738fa1a7 100644
+--- a/dlls/user32/tests/menu.c
++++ b/dlls/user32/tests/menu.c
+@@ -209,6 +209,56 @@ static void register_menu_check_class(void)
+     atomMenuCheckClass = RegisterClassA(&wc);
+ }
+ 
++static void test_menu_bar_height(void)
++{
++    BOOL (WINAPI *pAdjustWindowRectExForDpi)(RECT *, DWORD, BOOL, DWORD, UINT);
++    UINT (WINAPI *pGetDpiForWindow)(HWND);
++    RECT adjusted = {0}, client, window;
++    DWORD style, ex_style;
++    HMODULE user32;
++    HMENU menu;
++    HWND hwnd;
++    UINT dpi;
++    int actual, expected;
++
++    user32 = GetModuleHandleA("user32.dll");
++    pAdjustWindowRectExForDpi = (void *)GetProcAddress(user32, "AdjustWindowRectExForDpi");
++    pGetDpiForWindow = (void *)GetProcAddress(user32, "GetDpiForWindow");
++    if (!pAdjustWindowRectExForDpi || !pGetDpiForWindow)
++    {
++        win_skip("Per-monitor DPI APIs are not available.\n");
++        return;
++    }
++
++    menu = CreateMenu();
++    ok(menu != NULL, "CreateMenu failed with error %ld.\n", GetLastError());
++    AppendMenuA(menu, MF_STRING, 1, "File");
++    hwnd = CreateWindowExA(0, (LPCSTR)MAKEINTATOM(atomMenuCheckClass), NULL,
++                           WS_OVERLAPPEDWINDOW | WS_VISIBLE, 100, 100, 640, 480,
++                           NULL, menu, NULL, NULL);
++    ok(hwnd != NULL, "CreateWindowEx failed with error %ld.\n", GetLastError());
++    if (!hwnd)
++    {
++        DestroyMenu(menu);
++        return;
++    }
++
++    dpi = pGetDpiForWindow(hwnd);
++    style = GetWindowLongA(hwnd, GWL_STYLE);
++    ex_style = GetWindowLongA(hwnd, GWL_EXSTYLE);
++    pAdjustWindowRectExForDpi(&adjusted, style, TRUE, ex_style, dpi);
++    GetWindowRect(hwnd, &window);
++    GetClientRect(hwnd, &client);
++    actual = (window.bottom - window.top) - (client.bottom - client.top);
++    expected = adjusted.bottom - adjusted.top + MulDiv(4, dpi, 96);
++
++    ok(actual == expected, "Got non-client height %d, expected %d at %u DPI.\n",
++       actual, expected, dpi);
++
++    DestroyWindow(hwnd);
++    DestroyMenu(menu);
++}
++
+ static void test_getmenubarinfo(void)
+ {
+     BOOL ret;
+@@ -4234,6 +4284,7 @@ START_TEST(menu)
+ {
+     register_menu_check_class();
+ 
++    test_menu_bar_height();
+     test_menu_add_string();
+     test_menu_iteminfo();
+     test_menu_search_bycommand();
+diff --git a/dlls/win32u/menu.c b/dlls/win32u/menu.c
+index a700f44af78befb59cad46b20c3d6d175d344b3f..da788b4e2dcf72001d008470411edc42e7080928 100644
+--- a/dlls/win32u/menu.c
++++ b/dlls/win32u/menu.c
+@@ -71,6 +71,8 @@ struct menu
+     UINT        dwStyle;        /* extended menu style */
+     UINT        cyMax;          /* max height of the whole menu, 0 is screen height */
+     HBRUSH      hbrBack;        /* brush for menu background */
++    COLORREF    theme_background; /* sampled application menu-bar background */
++    COLORREF    theme_text;       /* contrasting text for sampled background */
+     DWORD       dwContextHelpID;
+     ULONG_PTR   dwMenuData;     /* application defined value */
+     HMENU       hSysMenuOwner;  /* handle to the dummy sys menu holder */
+@@ -612,6 +614,8 @@ static HMENU create_menu( BOOL is_popup )
+ 
+     if (!(menu = calloc( 1, sizeof(*menu) ))) return 0;
+     menu->FocusedItem = NO_SELECTED_ITEM;
++    menu->theme_background = CLR_INVALID;
++    menu->theme_text = CLR_INVALID;
+     menu->refcount = 1;
+     if (is_popup) menu->wFlags |= MF_POPUP;
+ 
+@@ -2200,6 +2204,10 @@ static void calc_menu_bar_size( HDC hdc, RECT *rect, struct menu *menu, HWND own
+         while (start < i) menu->items[start++].rect.bottom = menu->items_rect.bottom;
+     }
+ 
++    /* Windows leaves four logical pixels below items in a framed menu bar. */
++    if (get_window_long( owner, GWL_STYLE ) & (WS_CAPTION | WS_THICKFRAME))
++        menu->items_rect.bottom += map_user_dpi( 4, get_dpi_for_window( owner ));
++
+     OffsetRect( &menu->items_rect, rect->left, rect->top );
+     menu->Width = menu->items_rect.right - menu->items_rect.left;
+     menu->Height = menu->items_rect.bottom - menu->items_rect.top;
+@@ -2389,12 +2397,80 @@ got_bitmap:
+     NtGdiDeleteObjectApp( mem_hdc );
+ }
+ 
++static BOOL use_ableton_live_menu_theme( HWND hwnd )
++{
++    static const WCHAR class_prefix[] =
++        {'A','b','l','e','t','o','n',' ','L','i','v','e',' ','W','i','n','d','o','w'};
++    WCHAR class_name[64];
++    UNICODE_STRING name = {.Buffer = class_name, .MaximumLength = sizeof(class_name)};
++    const char *value = getenv( "ENCORE_ABLETON_MENU_THEME" );
++    INT len;
++
++    if (!value || !value[0] || value[0] == '0') return FALSE;
++    len = NtUserGetClassName( hwnd, FALSE, &name );
++    return len >= ARRAY_SIZE(class_prefix) &&
++           !memcmp( class_name, class_prefix, sizeof(class_prefix) );
++}
++
++static COLORREF contrasting_text_color( COLORREF background )
++{
++    unsigned int luminance = 299 * GetRValue(background) +
++                             587 * GetGValue(background) +
++                             114 * GetBValue(background);
++
++    return luminance >= 128000 ? RGB(0, 0, 0) : RGB(255, 255, 255);
++}
++
++static COLORREF sample_ableton_live_menu_theme( HWND hwnd, const RECT *menu_rect )
++{
++    static const unsigned int sample_columns[] = {6, 1, 2, 3, 4, 5, 7};
++    COLORREF samples[ARRAY_SIZE(sample_columns) * 3];
++    unsigned int best = 0, best_count = 0, count = 0, i, j;
++    int width = menu_rect->right - menu_rect->left;
++    struct ratio dpi = get_dpi_for_window( hwnd );
++    HDC hdc;
++
++    if (!(hdc = NtUserGetDCEx( hwnd, 0, DCX_CACHE | DCX_WINDOW ))) return CLR_INVALID;
++
++    for (i = 0; i < ARRAY_SIZE(sample_columns); ++i)
++    {
++        int x = menu_rect->left + width * sample_columns[i] / 8;
++
++        for (j = 0; j < 3; ++j)
++        {
++            int y = menu_rect->bottom + map_user_dpi( 10 + j * 2, dpi );
++            COLORREF color = NtGdiGetPixel( hdc, x, y );
++
++            if (color != CLR_INVALID) samples[count++] = color;
++        }
++    }
++    NtUserReleaseDC( hwnd, hdc );
++    if (!count) return CLR_INVALID;
++
++    for (i = 0; i < count; ++i)
++    {
++        unsigned int matches = 1;
++
++        for (j = i + 1; j < count; ++j)
++            if (samples[j] == samples[i]) matches++;
++        if (matches > best_count)
++        {
++            best = i;
++            best_count = matches;
++        }
++    }
++    return samples[best];
++}
++
+ /* Draw a single menu item */
+ static void draw_menu_item( HWND hwnd, struct menu *menu, HWND owner, HDC hdc,
+                             struct menu_item *item, BOOL menu_bar, UINT odaction )
+ {
+     UINT arrow_width = 0, arrow_height = 0;
+     HRGN old_clip = NULL, clip;
++    DWORD old_brush_color = 0;
++    HBRUSH background_brush;
++    BOOL themed_menu_bar;
+     BOOL flat_menu = FALSE;
+     RECT rect, bmprc;
+     int bkgnd;
+@@ -2424,14 +2500,22 @@ static void draw_menu_item( HWND hwnd, struct menu *menu, HWND owner, HDC hdc,
+ 
+     NtUserSystemParametersInfo( SPI_GETFLATMENU, 0, &flat_menu, 0 );
+     bkgnd = (menu_bar && flat_menu) ? COLOR_MENUBAR : COLOR_MENU;
++    themed_menu_bar = menu_bar && menu->theme_background != CLR_INVALID;
++    background_brush = themed_menu_bar ? GetStockObject( DC_BRUSH ) :
++                                         get_sys_color_brush( bkgnd );
++    if (themed_menu_bar)
++        NtGdiGetAndSetDCDword( hdc, NtGdiSetDCBrushColor,
++                              menu->theme_background, &old_brush_color );
+ 
+     /* Setup colors */
+     if (item->fState & MF_HILITE)
+     {
+         if (menu_bar && !flat_menu)
+         {
+-            NtGdiGetAndSetDCDword( hdc, NtGdiSetTextColor, get_sys_color(COLOR_MENUTEXT), NULL );
+-            NtGdiGetAndSetDCDword( hdc, NtGdiSetBkColor, get_sys_color(COLOR_MENU), NULL );
++            NtGdiGetAndSetDCDword( hdc, NtGdiSetTextColor,
++                                  themed_menu_bar ? menu->theme_text : get_sys_color(COLOR_MENUTEXT), NULL );
++            NtGdiGetAndSetDCDword( hdc, NtGdiSetBkColor,
++                                  themed_menu_bar ? menu->theme_background : get_sys_color(COLOR_MENU), NULL );
+         }
+         else
+         {
+@@ -2447,8 +2531,10 @@ static void draw_menu_item( HWND hwnd, struct menu *menu, HWND owner, HDC hdc,
+         if (item->fState & MF_GRAYED)
+             NtGdiGetAndSetDCDword( hdc, NtGdiSetTextColor, get_sys_color( COLOR_GRAYTEXT ), NULL );
+         else
+-            NtGdiGetAndSetDCDword( hdc, NtGdiSetTextColor, get_sys_color( COLOR_MENUTEXT ), NULL );
+-        NtGdiGetAndSetDCDword( hdc, NtGdiSetBkColor, get_sys_color( bkgnd ), NULL );
++            NtGdiGetAndSetDCDword( hdc, NtGdiSetTextColor,
++                                  themed_menu_bar ? menu->theme_text : get_sys_color( COLOR_MENUTEXT ), NULL );
++        NtGdiGetAndSetDCDword( hdc, NtGdiSetBkColor,
++                              themed_menu_bar ? menu->theme_background : get_sys_color( bkgnd ), NULL );
+     }
+ 
+     old_clip = NtGdiCreateRectRgn( 0, 0, 0, 0 );
+@@ -2523,7 +2609,7 @@ static void draw_menu_item( HWND hwnd, struct menu *menu, HWND owner, HDC hdc,
+         }
+     }
+     else
+-        fill_rect( hdc, &rect, get_sys_color_brush(bkgnd) );
++        fill_rect( hdc, &rect, background_brush );
+ 
+     NtGdiGetAndSetDCDword( hdc, NtGdiSetBkMode, TRANSPARENT, NULL );
+ 
+@@ -2736,6 +2822,8 @@ static void draw_menu_item( HWND hwnd, struct menu *menu, HWND owner, HDC hdc,
+ done:
+     NtGdiExtSelectClipRgn( hdc, old_clip, RGN_COPY );
+     if (old_clip) NtGdiDeleteObjectApp( old_clip );
++    if (themed_menu_bar)
++        NtGdiGetAndSetDCDword( hdc, NtGdiSetDCBrushColor, old_brush_color, NULL );
+ }
+ 
+ /***********************************************************************
+@@ -2744,8 +2832,11 @@ done:
+ DWORD WINAPI NtUserDrawMenuBarTemp( HWND hwnd, HDC hdc, RECT *rect, HMENU handle, HFONT font )
+ {
+     BOOL flat_menu = FALSE;
++    DWORD old_brush_color = 0;
++    HBRUSH background_brush;
+     HFONT prev_font = 0;
+     struct menu *menu;
++    COLORREF sampled;
+     UINT i, retvalue;
+ 
+     NtUserSystemParametersInfo( SPI_GETFLATMENU, 0, &flat_menu, 0 );
+@@ -2764,7 +2855,29 @@ DWORD WINAPI NtUserDrawMenuBarTemp( HWND hwnd, HDC hdc, RECT *rect, HMENU handle
+ 
+     rect->bottom = rect->top + menu->Height;
+ 
+-    fill_rect( hdc, rect, get_sys_color_brush( flat_menu ? COLOR_MENUBAR : COLOR_MENU ));
++    if (use_ableton_live_menu_theme( hwnd ))
++    {
++        sampled = sample_ableton_live_menu_theme( hwnd, rect );
++        if (sampled != CLR_INVALID)
++        {
++            menu->theme_background = sampled;
++            menu->theme_text = contrasting_text_color( sampled );
++        }
++    }
++    else
++    {
++        menu->theme_background = CLR_INVALID;
++        menu->theme_text = CLR_INVALID;
++    }
++
++    if (menu->theme_background != CLR_INVALID)
++    {
++        background_brush = GetStockObject( DC_BRUSH );
++        NtGdiGetAndSetDCDword( hdc, NtGdiSetDCBrushColor,
++                              menu->theme_background, &old_brush_color );
++    }
++    else background_brush = get_sys_color_brush( flat_menu ? COLOR_MENUBAR : COLOR_MENU );
++    fill_rect( hdc, rect, background_brush );
+ 
+     NtGdiSelectPen( hdc, get_sys_color_pen( COLOR_3DFACE ));
+     NtGdiMoveTo( hdc, rect->left, rect->bottom, NULL );
+@@ -2783,6 +2896,8 @@ DWORD WINAPI NtUserDrawMenuBarTemp( HWND hwnd, HDC hdc, RECT *rect, HMENU handle
+     }
+ 
+     if (prev_font) NtGdiSelectFont( hdc, prev_font );
++    if (menu->theme_background != CLR_INVALID)
++        NtGdiGetAndSetDCDword( hdc, NtGdiSetDCBrushColor, old_brush_color, NULL );
+     return retvalue;
+ }
+ 
