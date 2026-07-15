@@ -72,6 +72,7 @@ case $manager in
             xwayland xdg-desktop-portal gstreamer1.0-tools
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good
             gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
+            pipewire-jack
         )
         if [[ $desktop == *KDE* ]]; then
             runtime_packages+=(xdg-desktop-portal-kde)
@@ -89,7 +90,7 @@ case $manager in
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
             libglib2.0-dev liborc-0.4-dev libudev-dev libasound2-dev
             libgnutls28-dev libunwind-dev libjpeg-dev libpng-dev
-            libtiff-dev libxml2-dev
+            libtiff-dev libxml2-dev libjack-jackd2-dev
         )
         ;;
     dnf)
@@ -102,6 +103,7 @@ case $manager in
             gstreamer1 gstreamer1-plugin-libav
             gstreamer1-plugins-base gstreamer1-plugins-good
             gstreamer1-plugins-bad-free gstreamer1-plugins-ugly-free
+            pipewire-jack-audio-connection-kit
         )
         if [[ $desktop == *KDE* ]]; then
             runtime_packages+=(xdg-desktop-portal-kde)
@@ -121,7 +123,7 @@ case $manager in
             gstreamer1-plugins-base-devel glib2-devel orc-devel
             systemd-devel alsa-lib-devel vulkan-loader-devel gnutls-devel
             libunwind-devel libjpeg-turbo-devel libpng-devel libtiff-devel
-            libxml2-devel
+            libxml2-devel pipewire-jack-audio-connection-kit-devel
         )
         ;;
     pacman)
@@ -132,6 +134,7 @@ case $manager in
             libxi libxinerama libxrandr libxrender libpulse systemd-libs
             alsa-lib gnutls xorg-xwayland xdg-desktop-portal gstreamer gst-plugins-base
             gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav
+            pipewire-jack
         )
         if [[ $desktop == *KDE* ]]; then
             runtime_packages+=(xdg-desktop-portal-kde)

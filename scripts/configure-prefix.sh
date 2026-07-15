@@ -59,3 +59,24 @@ WINEPREFIX="$ENCORE_PREFIX" WINEDEBUG=-all \
     /v libusb-1.0 /t REG_SZ /d builtin /f >/dev/null
 
 say "Push 2 display bridge enabled (Push2DisplayProcess.exe uses ENCORE's libusb-1.0)"
+
+# Register WineASIO (low-latency audio: WineASIO -> JACK/PipeWire) if it has been
+# built (scripts/build-wineasio.sh). Live then lists it under ASIO devices. The
+# PE half must live in the prefix's system32; the Unix half is found at load time
+# via WINEDLLPATH (set here and by the launcher). Skipped silently if not built.
+wineasio_root="$PROJECT_ROOT/runtime/wineasio"
+if [ -f "$wineasio_root/wineasio64.dll" ] && [ -f "$wineasio_root/wineasio64.dll.so" ]; then
+    ldconfig -p 2>/dev/null | grep -q 'libjack\.so\.0' ||
+        say "  note: host libjack.so.0 not found — install pipewire-jack (or JACK2) before using WineASIO"
+    for name in wineasio64.dll wineasio.dll; do
+        cp -f "$wineasio_root/wineasio64.dll" "$ENCORE_PREFIX/drive_c/windows/system32/$name"
+    done
+    if WINEPREFIX="$ENCORE_PREFIX" WINEDEBUG=-all \
+        WINEDLLPATH="$wineasio_root${WINEDLLPATH:+:$WINEDLLPATH}" \
+        "$WINE_BINARY" regsvr32 "$wineasio_root/wineasio64.dll.so" >/dev/null 2>&1
+    then
+        say "WineASIO registered (Preferences > Audio > Driver Type: ASIO > Device: WineASIO)"
+    else
+        say "  note: WineASIO registration did not complete; check host libjack and re-run configure-prefix.sh"
+    fi
+fi

@@ -66,6 +66,7 @@ unset ableton_environment_explicit
 no_build_requested=0
 prebuilt_requested=0
 source_build_requested=0
+wineasio_requested=1
 adopt_prefix=0
 replace_live=0
 log_file=
@@ -95,6 +96,7 @@ Setup options:
   --no-build             Require an existing --wine/default runtime
   --build-only           Build Wine, then stop before Ableton setup
   --configure-only       Configure Wine, then stop (advanced diagnostics)
+  --no-wineasio          Skip building the WineASIO/jacklinkd audio driver
 
 Dependency and automation options:
   --install-deps         Install missing distro packages when needed
@@ -184,6 +186,9 @@ while (($#)); do
         --no-build)
             no_build_requested=1
             build_mode=skip
+            ;;
+        --no-wineasio)
+            wineasio_requested=0
             ;;
         --prebuilt)
             [[ $wine_explicit -eq 0 ]] || {
@@ -1853,6 +1858,9 @@ main()
                 run_stage 'Configure ENCORE Wine' "$SCRIPTS/build-wine.sh" --configure-only
             else
                 run_stage 'Build ENCORE Wine from source' "$SCRIPTS/build-wine.sh"
+                if [[ $wineasio_requested -eq 1 ]]; then
+                    run_stage 'Build WineASIO low-latency audio' "$SCRIPTS/build-wineasio.sh"
+                fi
             fi
             ;;
         download)
