@@ -61,6 +61,19 @@ Default `ENCORE_WEBVIEW2_FLAGS`:
 | `WINEDEBUG` | `-all` (unless set) | Wine | Standard debug channel control. |
 | `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` | your value + ENCORE flags | Wine WebView2 | Extra Chromium arguments; ENCORE's are appended. |
 
+## WineASIO variables (when built)
+
+Set by the launcher only when `runtime/wineasio/` is present; override in the
+environment before launch. See [wineasio.md](wineasio.md).
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `WINEASIO_NUMBER_INPUTS` / `_OUTPUTS` | `2` | ASIO input/output channel counts exposed to Live. |
+| `WINEASIO_FIXED_BUFFERSIZE` | `on` | Lock the buffer size to the backend's. |
+| `WINEASIO_PREFERRED_BUFFERSIZE` | `256` | Buffer size in frames; raise to `512` if you hear crackles. |
+| `WINEASIO_CONNECT_TO_HARDWARE` | `on` | Auto-connect WineASIO's ports to the hardware ports. |
+| `WINEDLLPATH` | `runtime/wineasio` prepended | Where Wine finds the WineASIO Unix builtin; ENCORE prepends its directory. |
+
 ## Runtime download and build overrides
 
 Read from `scripts/common.sh` (mostly for advanced/CI use):

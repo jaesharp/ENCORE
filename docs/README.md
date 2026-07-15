@@ -21,6 +21,7 @@ application folder. This folder is the deep documentation; the top-level
 - [installer.md](installer.md) — the `install.sh` wizard: flags, the stage pipeline, safety/resume, on-disk state.
 - [scripts.md](scripts.md) — reference for all 19 helper scripts.
 - [building.md](building.md) — the default source build (mingw + ntsync + reproducible), the opt-in prebuilt runtime, and release packaging.
+- [wineasio.md](wineasio.md) — opt-in low-latency audio (WineASIO → JACK/PipeWire) and the `jacklinkd` device-recovery helper.
 - [environment.md](environment.md) — every `ENCORE_*` and `WINE_*` variable: consumer, default, effect, precedence.
 - [troubleshooting.md](troubleshooting.md) — known limitations and symptom → cause → fix tables.
 - [glossary.md](glossary.md) — Wine/X11/portal/DAW terminology.

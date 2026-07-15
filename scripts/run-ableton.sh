@@ -28,6 +28,15 @@ else
     cpu_topology=$("$ROOT/scripts/select-cpu-topology.sh")
 fi
 
+# WineASIO (opt-in low-latency audio): enabled when scripts/build-wineasio.sh has
+# installed the driver. Wine finds its Unix half via WINEDLLPATH.
+wineasio_root="$ROOT/runtime/wineasio"
+wineasio_enabled=0
+if [ -f "$wineasio_root/wineasio64.dll.so" ]; then
+    wineasio_enabled=1
+    WINEDLLPATH="$wineasio_root${WINEDLLPATH:+:$WINEDLLPATH}"
+fi
+
 if [ "${ENCORE_DRY_RUN:-0}" = 1 ]; then
     printf 'WINEPREFIX=%s\n' "$PREFIX"
     printf 'WINE=%s\n' "$WINE"
@@ -40,6 +49,15 @@ if [ "${ENCORE_DRY_RUN:-0}" = 1 ]; then
     printf 'ENCORE_ABLETON_MENU_THEME=%s\n' "${ENCORE_ABLETON_MENU_THEME-1}"
     printf 'WINE_CPU_TOPOLOGY=%s\n' "$cpu_topology"
     printf 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=%s\n' "$webview_arguments"
+    if [ "$wineasio_enabled" = 1 ]; then
+        printf 'WINEDLLPATH=%s\n' "$WINEDLLPATH"
+        printf 'WINEASIO_NUMBER_INPUTS=%s\n' "${WINEASIO_NUMBER_INPUTS:-2}"
+        printf 'WINEASIO_NUMBER_OUTPUTS=%s\n' "${WINEASIO_NUMBER_OUTPUTS:-2}"
+        printf 'WINEASIO_FIXED_BUFFERSIZE=%s\n' "${WINEASIO_FIXED_BUFFERSIZE:-on}"
+        printf 'WINEASIO_PREFERRED_BUFFERSIZE=%s\n' "${WINEASIO_PREFERRED_BUFFERSIZE:-256}"
+        printf 'WINEASIO_CONNECT_TO_HARDWARE=%s\n' "${WINEASIO_CONNECT_TO_HARDWARE:-on}"
+        printf 'jacklinkd=%s\n' "$wineasio_root/jacklinkd"
+    fi
     exit 0
 fi
 
@@ -60,5 +78,18 @@ else
     unset WINE_CPU_TOPOLOGY
 fi
 export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="$webview_arguments"
+
+if [ "$wineasio_enabled" = 1 ]; then
+    export WINEDLLPATH
+    export WINEASIO_NUMBER_INPUTS="${WINEASIO_NUMBER_INPUTS:-2}"
+    export WINEASIO_NUMBER_OUTPUTS="${WINEASIO_NUMBER_OUTPUTS:-2}"
+    export WINEASIO_FIXED_BUFFERSIZE="${WINEASIO_FIXED_BUFFERSIZE:-on}"
+    export WINEASIO_PREFERRED_BUFFERSIZE="${WINEASIO_PREFERRED_BUFFERSIZE:-256}"
+    export WINEASIO_CONNECT_TO_HARDWARE="${WINEASIO_CONNECT_TO_HARDWARE:-on}"
+    # Keep JACK links alive across an audio device replug (one backgrounded instance).
+    if [ -x "$wineasio_root/jacklinkd" ] && ! pgrep -x jacklinkd >/dev/null 2>&1; then
+        "$wineasio_root/jacklinkd" >/dev/null 2>&1 &
+    fi
+fi
 
 exec "$WINE" "$ABLETON" "$@"
