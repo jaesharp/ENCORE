@@ -48,3 +48,14 @@ WINEPREFIX="$ENCORE_PREFIX" WINEDEBUG=-all \
     /v FileDialogPortal /t REG_SZ /d always /f >/dev/null
 
 say "Native folder picker enabled for Ableton; host files are available through $root_drive"
+
+# Route only Push 2's display helper through ENCORE's builtin libusb-1.0 bridge so
+# it can reach the device's vendor bulk interface (Wine's WinUSB path cannot open
+# interface 0); Live's own process keeps Ableton's bundled libusb untouched.
+# See patches/wine/100-push2-libusb-bridge.patch.
+WINEPREFIX="$ENCORE_PREFIX" WINEDEBUG=-all \
+    "$WINE_BINARY" reg.exe add \
+    "HKCU\\Software\\Wine\\AppDefaults\\Push2DisplayProcess.exe\\DllOverrides" \
+    /v libusb-1.0 /t REG_SZ /d builtin /f >/dev/null
+
+say "Push 2 display bridge enabled (Push2DisplayProcess.exe uses ENCORE's libusb-1.0)"
