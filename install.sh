@@ -90,8 +90,8 @@ Setup options:
   --scale PERCENT        Display scale: 100, 125, 150, 175, 200, or 250
   --jobs N               Parallel jobs for an optional source build
   --wine FILE            Reuse an existing ENCORE Wine runtime
-  --prebuilt             Download the verified prebuilt runtime (default)
-  --build-from-source    Compile the patched Wine tree locally instead
+  --prebuilt             Download the verified prebuilt runtime instead
+  --build-from-source    Compile the patched Wine tree locally (default)
   --no-build             Require an existing --wine/default runtime
   --build-only           Build Wine, then stop before Ableton setup
   --configure-only       Configure Wine, then stop (advanced diagnostics)
@@ -1683,11 +1683,18 @@ prepare_choices()
     fi
 
     if [[ $build_mode == auto ]]; then
-        if wine_build_ready "$wine"; then
+        # Default to building from source. Reuse an existing runtime if one is
+        # already present (source build preferred, then a previously downloaded
+        # prebuilt), but never download the prebuilt runtime unless --prebuilt.
+        if wine_build_ready "$SOURCE_WINE"; then
             build_mode=skip
-        else
-            build_mode=download
+            wine=$SOURCE_WINE
+        elif wine_build_ready "$DEFAULT_WINE"; then
+            build_mode=skip
             wine=$DEFAULT_WINE
+        else
+            build_mode=build
+            wine=$SOURCE_WINE
         fi
     fi
 
