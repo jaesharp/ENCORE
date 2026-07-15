@@ -51,7 +51,11 @@ feature) much easier to read.
 
 ## Feature index
 
-The 40 changed files group into six subsystems. Each has its own page.
+The patch set lives as a numbered series in [`patches/wine/`](../../patches/wine/),
+applied in order by `bootstrap-wine.sh`. The first six subsystems (`10`–`60`) are
+ENCORE's original delta; three further patches (`70`–`90`) are ported from
+**shibco/ableton-linux** (LGPL Wine fixes, attributed in each patch header and
+page). Each subsystem has its own page.
 
 | Page | Features | Primary source |
 | --- | --- | --- |
@@ -61,6 +65,9 @@ The 40 changed files group into six subsystems. Each has its own page.
 | [drag-and-drop.md](drag-and-drop.md) | Host-file drag-and-drop | `dlls/user32/clipboard.c`, `dlls/win32u/clipboard.c` |
 | [menu-theming.md](menu-theming.md) | Dynamic menu-bar theming | `dlls/win32u/menu.c` |
 | [runtime-fixes.md](runtime-fixes.md) | DXGI vblank pacing; msvcp `basic_istream`; mount-reparse | `dlls/dxgi`, `dlls/msvcp*`, `dlls/ntdll/unix/file.c` |
+| [audio-endpoint-friendlyname.md](audio-endpoint-friendlyname.md) | mmdevapi endpoint FriendlyName re-wrap crash fix *(shibco)* | `dlls/mmdevapi/devenum.c` |
+| [midi-hotplug.md](midi-hotplug.md) | MIDI controller hotplug re-subscribe *(shibco)* | `dlls/winealsa.drv/alsamidi.c` |
+| [opengl-srgb.md](opengl-srgb.md) | EGL sRGB-capable pixel formats *(shibco)* | `dlls/win32u/opengl.c`, `dlls/winex11.drv/opengl.c` |
 
 ## Full diffstat by subsystem
 

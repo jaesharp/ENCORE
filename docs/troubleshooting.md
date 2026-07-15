@@ -66,6 +66,9 @@ any failure, with a quoted retry command); launch log `logs/ableton-dock.log`.
 | Dragging files from the desktop does nothing | DnD path/target | See [drag-and-drop.md](patches/drag-and-drop.md). |
 | Audio glitches under load | CPU topology | Inspect/override `WINE_CPU_TOPOLOGY`. See [cpu-and-threads.md](patches/cpu-and-threads.md). |
 | Live hangs scanning across a mount point | Reparse-point canonicalisation | `WINE_DISABLE_UNIX_MOUNT_REPARSE=1` (set by the launcher) addresses this. See [runtime-fixes.md](patches/runtime-fixes.md). |
+| Live crashes at startup right after opening audio | An older runtime nested an audio endpoint's registry name without bound (`Speakers (Speakers (…))`) | Fixed going forward by [audio-endpoint-friendlyname.md](patches/audio-endpoint-friendlyname.md); heal an already-corrupt prefix **once** with `wine reg delete 'HKLM\Software\Microsoft\Windows\CurrentVersion\MMDevices\Audio' /f`, then relaunch. |
+| A MIDI controller (Push included) goes dead after an in-session unplug/replug | ALSA dropped the subscription on unplug | Re-subscribed automatically by [midi-hotplug.md](patches/midi-hotplug.md) **if the device was present when Live started**; a never-before-seen device still needs a Live restart. |
+| A plugin editor crashes Live as it opens (needs an sRGB framebuffer) | The GUI requires `WGL_FRAMEBUFFER_SRGB_CAPABLE`, unadvertised in stock Wine | Advertised by [opengl-srgb.md](patches/opengl-srgb.md); make sure your runtime includes patch `90` (any current source build does). |
 
 ## Reporting
 
