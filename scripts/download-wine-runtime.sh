@@ -26,7 +26,7 @@ esac
     "$ENCORE_GLIBC_MIN" ] ||
     die "the prebuilt runtime requires glibc $ENCORE_GLIBC_MIN or newer; use --build-from-source on this system"
 
-expected_patch=$(sha256sum "$WINE_PATCH" | awk '{print $1}')
+expected_patch=$(encore_patch_sha256)
 
 validate_runtime()
 {

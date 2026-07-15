@@ -46,7 +46,7 @@ do
         die "Wine configuration is missing required support: $definition"
 done
 
-patch_sha256=$(sha256sum "$WINE_PATCH" | awk '{print $1}')
+patch_sha256=$(encore_patch_sha256)
 source_date_epoch=${SOURCE_DATE_EPOCH:-$WINE_SOURCE_DATE_EPOCH}
 case $source_date_epoch in
     ''|*[!0-9]*) die "invalid SOURCE_DATE_EPOCH: $source_date_epoch" ;;
@@ -195,7 +195,7 @@ EOF
 mkdir -p "$source_dir/scripts" "$source_dir/patches" \
     "$source_dir/packaging" "$source_dir/.github/workflows"
 install -m 0644 "$PROJECT_ROOT/README.md" "$source_dir/ENCORE-README.md"
-install -m 0644 "$WINE_PATCH" "$source_dir/patches/encore-wine.patch"
+cp -a "$WINE_PATCH_DIR" "$source_dir/patches/wine"
 cp -a "$PROJECT_ROOT/packaging/uapi" "$source_dir/packaging/"
 for script in common.sh bootstrap-wine.sh build-wine.sh prepare-deps.sh \
     install-dependencies.sh package-wine-release.sh

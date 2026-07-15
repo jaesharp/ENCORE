@@ -859,7 +859,7 @@ wine_build_ready()
     local -a runtime_records=() configured_pe_archs=()
     [[ -x $candidate ]] || return 1
     [[ $("$candidate" --version 2>/dev/null) == wine-11.13 ]] || return 1
-    expected_hash=$(sha256sum "$ROOT/patches/encore-wine.patch" | awk '{print $1}')
+    expected_hash=$(cat "$ROOT/patches/wine/"*.patch 2>/dev/null | sha256sum | awk '{print $1}')
 
     build_dir=$(dirname -- "$candidate")
     runtime_root=$(dirname -- "$build_dir")
