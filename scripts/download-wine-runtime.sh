@@ -71,7 +71,7 @@ validate_runtime()
     glibc_max=${BASH_REMATCH[1]}
     [ "$(printf '%s\n' "$glibc_max" 2.35 | sort -V | tail -n 1)" = 2.35 ] ||
         return 1
-    [ "$($root/bin/wine --version 2>/dev/null)" = wine-11.13 ] || return 1
+    [ "$("$root/bin/wine" --version 2>/dev/null)" = wine-11.13 ] || return 1
 }
 
 if [ -e "$ENCORE_RUNTIME_ROOT" ] || [ -L "$ENCORE_RUNTIME_ROOT" ]; then
