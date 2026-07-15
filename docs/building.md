@@ -1,12 +1,13 @@
 # The Wine runtime: prebuilt and from source
 
-Most users never build Wine — ENCORE downloads a **verified prebuilt runtime**
-by default. This page covers that path, the optional source build, and how the
-release runtime is produced.
+On this fork, `install.sh` **builds the patched Wine from source by default**;
+the **verified prebuilt runtime** is opt-in with `--prebuilt`. (Upstream ENCORE
+defaults the other way — prebuilt unless you pass `--build-from-source`.) This
+page covers both paths and how the release runtime is produced.
 
-## Default: the prebuilt runtime
+## The prebuilt runtime (opt-in with `--prebuilt`)
 
-`install.sh` (default `--prebuilt`) runs `scripts/download-wine-runtime.sh`,
+`install.sh --prebuilt` runs `scripts/download-wine-runtime.sh`,
 which downloads `encore-wine-11.13-r1-x86_64-linux-gnu.tar.xz` from the ENCORE
 GitHub release and installs it to `runtime/wine/`. Requirements:
 
@@ -22,10 +23,11 @@ version, `wine_version=11.13`, `wine_revision`, patch SHA-256, `arch=x86_64`,
 `pe_archs=i386,x86_64`, `glibc_max`), and `wine --version == wine-11.13`.
 Extraction is atomic; a valid existing `runtime/wine/` is reused.
 
-## Building from source
+## Building from source (the default)
 
-Use `./install.sh --build-from-source` (or `--build-only` to stop after the
-build). `scripts/build-wine.sh` clones + patches Wine
+A plain `./install.sh` builds from source; `--build-from-source` selects it
+explicitly and `--build-only` stops after the build. `scripts/build-wine.sh`
+clones + patches Wine
 (see [patches/README.md](patches/README.md)) and compiles it into `build/wine64/`.
 
 ### Requirements

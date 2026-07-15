@@ -3,8 +3,9 @@
 ## What ENCORE is
 
 ENCORE is a **guided Wine compatibility setup for running Ableton Live 11 and 12
-on Linux**. It ships and installs a **verified, prebuilt patched Wine runtime**
-by default (no compiling), configures a Wine prefix for Live, and imports a
+on Linux**. It **builds the patched Wine from source by default** (a verified
+prebuilt runtime is available with `--prebuilt`), configures a Wine prefix for
+Live, and imports a
 copy of your own already-installed Live application folder. It supplies the hard
 compatibility work — native file dialogs, HiDPI, VST3 hosting, audio,
 drag-and-drop, themed menus, and (Live 12) the Learn View — from one command.
@@ -19,7 +20,7 @@ verifies, or configures a Wine that carries that patch.
   or 12 application folder** copied from a licensed Windows installation
   (Suite, Standard, Intro, Lite, or Trial). ENCORE never downloads, bundles, or
   runs the Ableton installer.
-- **ENCORE supplies:** the patched Wine runtime (prebuilt by default), a
+- **ENCORE supplies:** the patched Wine runtime (built from source by default), a
   configured prefix, the Microsoft prerequisites bundled inside your Live folder
   (Visual C++ runtime; for Live 12 also the WebView2 runtime), and a launcher +
   desktop entry.
@@ -32,8 +33,8 @@ verifies, or configures a Wine that carries that patch.
                      ▼
    ┌───────────── scripts/ ─────────────────────────────────────────────┐
    │ WINE RUNTIME (pick one)                                             │
-   │   download-wine-runtime.sh  fetch+verify prebuilt  ─▶ runtime/wine/ │  (default)
-   │   build-wine.sh             compile patched Wine   ─▶ build/wine64/ │  (--build-from-source)
+   │   build-wine.sh             compile patched Wine   ─▶ build/wine64/ │  (default)
+   │   download-wine-runtime.sh  fetch+verify prebuilt  ─▶ runtime/wine/ │  (--prebuilt)
    │                                                                     │
    │ ABLETON                                                             │
    │   ableton-profile.sh   identify Live 11/12 + edition               │
@@ -59,7 +60,7 @@ verifies, or configures a Wine that carries that patch.
 
 **Setup** (`install.sh`, detailed in [installer.md](installer.md)) —
 system check → normalize config → prepare choices → plan → install packages →
-**obtain Wine** (download prebuilt *or* build from source) → register prefix →
+**obtain Wine** (build from source *or* download prebuilt) → register prefix →
 **import your Live folder** → initialize prefix (`wineboot`) → install the
 Visual C++ runtime → install WebView2 (Live 12) → enable host files + portal →
 set DPI → install Learn View font (Live 12) → save launcher paths → desktop
@@ -71,7 +72,7 @@ environment (see [environment.md](environment.md)), and `exec` ENCORE Wine on it
 
 ## The prebuilt runtime and its verification
 
-The default path downloads a pinned runtime archive
+With `--prebuilt`, ENCORE downloads a pinned runtime archive
 (`encore-wine-11.13-r1-x86_64-linux-gnu.tar.xz`) from the ENCORE GitHub release
 and installs it to `runtime/wine/`. `download-wine-runtime.sh` verifies it
 rigorously before activating it:
@@ -87,9 +88,9 @@ rigorously before activating it:
 - `wine --version` reports `wine-11.13`.
 
 Extraction is atomic (staged in a temp dir, validated, then moved into place),
-and a valid existing runtime is reused. Building from source
-(see [building.md](building.md)) is the alternative when a prebuilt runtime
-isn't wanted or the host glibc is too old.
+and a valid existing runtime is reused. This prebuilt path is opt-in with
+`--prebuilt`; the default is [building from source](building.md), which is also
+the route when the host glibc is too old for the runtime.
 
 ## Importing Ableton Live (copy, not install)
 

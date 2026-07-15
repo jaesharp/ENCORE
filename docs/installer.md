@@ -55,9 +55,9 @@ confirmed.
 5. **Start mutating run** — take the `flock`, open the timestamped log.
 6. **Install system packages** (if approved) → re-verify dependencies.
 7. **Obtain Wine** — one of:
-   - `download` (default): **Download verified ENCORE Wine runtime**
+   - `build` (default): **Build ENCORE Wine from source** (`build-wine.sh`) → `build/wine64/`.
+   - `download` (`--prebuilt`): **Download verified ENCORE Wine runtime**
      (`download-wine-runtime.sh`) → `runtime/wine/`, then verify.
-   - `build`: **Build ENCORE Wine from source** (`build-wine.sh`) → `build/wine64/`.
    - reuse an existing `--wine`/default runtime.
 8. *(stops here for `--build-only` / `--configure-only`)*
 9. **Register the ENCORE prefix** (`mark_prefix`).
@@ -93,10 +93,10 @@ Mirrors `./install.sh --help`.
 | `--replace-live` | Replace Live already in the prefix using `--live-dir`. |
 | `--dpi N` | Wine DPI, 72–384. Mutually exclusive with `--scale`. |
 | `--scale PERCENT` | 100, 125, 150, 175, 200, or 250. |
-| `--jobs N` | Parallel jobs for an optional source build (1–64). |
+| `--jobs N` | Parallel jobs for the source build (1–64). |
 | `--wine FILE` | Reuse an existing ENCORE Wine runtime; implies no build. |
-| `--prebuilt` | Download the verified prebuilt runtime (**default**). |
-| `--build-from-source` | Compile the patched Wine tree locally instead. |
+| `--prebuilt` | Download the verified prebuilt runtime instead of building. |
+| `--build-from-source` | Compile the patched Wine tree locally (**default**). |
 | `--no-build` | Require an existing `--wine`/default runtime. |
 | `--build-only` | Build Wine, then stop before Ableton setup. |
 | `--configure-only` | Configure Wine, then stop (advanced diagnostics). |
@@ -151,7 +151,7 @@ Change it later with `./install.sh --no-build --dpi N`.
 
 | Path | Format | Purpose |
 | --- | --- | --- |
-| `runtime/wine/` | prebuilt tree + `.encore-runtime` manifest (`ENCORE_WINE_RUNTIME_V1`) | the default (downloaded) Wine runtime |
+| `runtime/wine/` | prebuilt tree + `.encore-runtime` manifest (`ENCORE_WINE_RUNTIME_V1`) | the downloaded (`--prebuilt`) Wine runtime |
 | `build/wine64/.encore-build` | `wine_revision=…`, `patch_sha256=…` | source-build completion stamp |
 | `ableton-prefix/.encore-prefix` | `ENCORE_PREFIX_V1` | marks a prefix as ENCORE-owned |
 | `.encore/runtime.conf` | 4 lines: `ENCORE_RUNTIME_V1`, prefix, wine, ableton (0600) | launcher path memory; repo-relative paths stored relative |

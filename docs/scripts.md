@@ -39,7 +39,7 @@ pinned `ENCORE_RUNTIME_SHA256`, the release base URL, and paths
 `WINE_BUILD`, `ENCORE_PREFIX`, `WINE_PATCH`), plus `say`/`die`/`require_command`.
 
 ### `download-wine-runtime.sh`
-The default Wine source. Checks host arch + glibc ≥ `ENCORE_GLIBC_MIN`, downloads
+The `--prebuilt` Wine source. Checks host arch + glibc ≥ `ENCORE_GLIBC_MIN`, downloads
 the pinned runtime archive over HTTPS with resume, verifies its SHA-256, rejects
 unsafe archive paths, extracts to a temp dir, runs `validate_runtime` (layout +
 `.encore-runtime` manifest + `wine --version`), and atomically moves it to

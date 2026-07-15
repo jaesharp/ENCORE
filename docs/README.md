@@ -1,8 +1,9 @@
 # ENCORE documentation
 
 ENCORE is a guided Wine compatibility setup for running Ableton Live 11 and 12
-on Linux. It installs a **verified prebuilt patched Wine runtime** (no compiling
-by default), configures a Wine prefix, and imports your own installed Live
+on Linux. It **builds the patched Wine from source by default** (a verified
+prebuilt runtime is available with `--prebuilt`), configures a Wine prefix, and
+imports your own installed Live
 application folder. This folder is the deep documentation; the top-level
 [README](../README.md) is the quick start.
 
@@ -19,7 +20,7 @@ application folder. This folder is the deep documentation; the top-level
 - [architecture.md](architecture.md) — what ENCORE is, component map, prebuilt-vs-source runtime, the copy-installed-Live model, licensing.
 - [installer.md](installer.md) — the `install.sh` wizard: flags, the stage pipeline, safety/resume, on-disk state.
 - [scripts.md](scripts.md) — reference for all 19 helper scripts.
-- [building.md](building.md) — the prebuilt runtime, the optional source build (mingw + ntsync + reproducible), and release packaging.
+- [building.md](building.md) — the default source build (mingw + ntsync + reproducible), the opt-in prebuilt runtime, and release packaging.
 - [environment.md](environment.md) — every `ENCORE_*` and `WINE_*` variable: consumer, default, effect, precedence.
 - [troubleshooting.md](troubleshooting.md) — known limitations and symptom → cause → fix tables.
 - [glossary.md](glossary.md) — Wine/X11/portal/DAW terminology.

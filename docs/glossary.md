@@ -45,7 +45,7 @@ Terms used across the ENCORE documentation, defined once.
   exposing desktop facilities (file chooser, …) to sandboxed or foreign apps;
   per-desktop backends (`-gnome`, `-kde`, `-gtk`).
 - **prebuilt runtime** — the verified, pinned patched-Wine tarball ENCORE
-  downloads by default and installs to `runtime/wine/`, avoiding a local
+  downloads with `--prebuilt` and installs to `runtime/wine/`, avoiding a local
   compile. Produced by `package-wine-release.sh` / CI.
 - **prefix (`WINEPREFIX`)** — a Wine "bottle": a directory with a fake `C:`
   drive, registry, and per-app state. ENCORE's default is `./ableton-prefix`.
