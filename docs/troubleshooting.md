@@ -70,6 +70,9 @@ any failure, with a quoted retry command); launch log `logs/ableton-dock.log`.
 | A MIDI controller (Push included) goes dead after an in-session unplug/replug | ALSA dropped the subscription on unplug | Re-subscribed automatically by [midi-hotplug.md](patches/midi-hotplug.md) **if the device was present when Live started**; a never-before-seen device still needs a Live restart. |
 | A plugin editor crashes Live as it opens (needs an sRGB framebuffer) | The GUI requires `WGL_FRAMEBUFFER_SRGB_CAPABLE`, unadvertised in stock Wine | Advertised by [opengl-srgb.md](patches/opengl-srgb.md); make sure your runtime includes patch `90` (any current source build does). |
 | Push 2's screen stays dark although its pads/MIDI work | Wine's WinUSB can't open the Push 2 display (bulk) interface | ENCORE routes `Push2DisplayProcess.exe` through a `libusb-1.0` bridge — see [push2-display.md](patches/push2-display.md); confirm the prefix was configured (`configure-prefix.sh`) and your runtime includes patch `100`. |
+| WineASIO missing from Live's audio device list | Host `libjack` not found, or WineASIO not built/registered | Install `pipewire-jack` and restart Live; WineASIO needs a **source** build (it isn't in the prebuilt runtime) and `configure-prefix.sh` to have registered it. See [wineasio.md](wineasio.md). |
+| Crackling / dropouts on WineASIO | Buffer size too small | Raise `WINEASIO_PREFERRED_BUFFERSIZE` to `512` (or the WineASIO panel's buffer). |
+| Audio goes silent after unplugging/replugging an interface | PipeWire doesn't restore JACK links on replug | `jacklinkd` (started by the launcher) restores links it has seen; a device that was never wired to Live needs manual routing. See [wineasio.md](wineasio.md). |
 
 ## Reporting
 
