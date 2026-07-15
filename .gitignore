@@ -1,0 +1,29 @@
+# Runtime prefixes and private application data
+/ableton-prefix/
+
+# Upstream source checkout, build products, and downloaded dependencies
+/wine/
+/build/
+/runtime/
+/dist/
+/deps/
+/.tmp/
+
+# Local installer and runtime logs
+/logs/
+/.encore/
+
+# Compiled outputs and editor/tool state
+*.o
+*.obj
+*.a
+*.so
+*.exe
+*.exe.so
+*.dll
+*.dll.so
+*.log
+*.bndb
+__pycache__/
+node_modules/
+.DS_Store

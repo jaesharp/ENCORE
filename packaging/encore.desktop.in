@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=@NAME@
+GenericName=Digital Audio Workstation
+Comment=@COMMENT@
+Exec=@EXEC@
+TryExec=@TRY_EXEC@
+Icon=@ICON@
+Terminal=false
+StartupNotify=true
+StartupWMClass=@STARTUP_WM_CLASS@
+Categories=AudioVideo;Audio;Music;
+Keywords=ENCORE;Ableton;Live;DAW;Audio;Music;
