@@ -1,0 +1,271 @@
+diff --git a/dlls/dxgi/output.c b/dlls/dxgi/output.c
+index e828ed0d9d87e4d1ca8f91136371fefed310c4ff..895c59872830aae9a1fa00f567106fce97c23880 100644
+--- a/dlls/dxgi/output.c
++++ b/dlls/dxgi/output.c
+@@ -17,6 +17,7 @@
+  */
+ 
+ #include "dxgi_private.h"
++#include "winternl.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(dxgi);
+ 
+@@ -363,14 +364,43 @@ static HRESULT STDMETHODCALLTYPE dxgi_output_FindClosestMatchingMode(IDXGIOutput
+ 
+ static HRESULT STDMETHODCALLTYPE dxgi_output_WaitForVBlank(IDXGIOutput6 *iface)
+ {
+-    static BOOL once = FALSE;
++    struct dxgi_output *output = impl_from_IDXGIOutput6(iface);
++    LARGE_INTEGER counter, delay, frequency;
++    struct wined3d_display_mode mode;
++    LONGLONG period, remaining;
++    UINT refresh_rate;
++    NTSTATUS status;
++    HRESULT hr;
+ 
+-    if (!once++)
+-        FIXME("iface %p stub!\n", iface);
+-    else
+-        TRACE("iface %p stub!\n", iface);
++    TRACE("iface %p.\n", iface);
+ 
+-    return E_NOTIMPL;
++    wined3d_mutex_lock();
++    hr = wined3d_output_get_display_mode(output->wined3d_output, &mode, NULL);
++    wined3d_mutex_unlock();
++    if (FAILED(hr))
++        return hr;
++
++    if (!QueryPerformanceCounter(&counter) || !QueryPerformanceFrequency(&frequency))
++        return E_FAIL;
++
++    /* There is no host-vblank primitive at this layer. Still return a paced
++     * success result: GUI frameworks use this method as their repaint clock,
++     * and an E_NOTIMPL result can leave invalid regions queued forever. */
++    refresh_rate = mode.refresh_rate;
++    if (refresh_rate < 24 || refresh_rate > 1000)
++        refresh_rate = 60;
++    if (!(period = frequency.QuadPart / refresh_rate))
++        return E_FAIL;
++
++    remaining = period - counter.QuadPart % period;
++    delay.QuadPart = -((remaining * 10000000 + frequency.QuadPart - 1)
++            / frequency.QuadPart);
++    if (!delay.QuadPart)
++        delay.QuadPart = -1;
++    if ((status = NtDelayExecution(FALSE, &delay)) < 0)
++        return HRESULT_FROM_NT(status);
++
++    return S_OK;
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE dxgi_output_TakeOwnership(IDXGIOutput6 *iface, IUnknown *device, BOOL exclusive)
+diff --git a/dlls/dxgi/tests/dxgi.c b/dlls/dxgi/tests/dxgi.c
+index 518fe47cbd8b0a247d804c2b9b2de0986657fb5b..f86e74bbd0f56b3adbfd847eb64e1d3d68c5350a 100644
+--- a/dlls/dxgi/tests/dxgi.c
++++ b/dlls/dxgi/tests/dxgi.c
+@@ -1405,6 +1405,8 @@ static void test_parents(void)
+ static void test_output(void)
+ {
+     unsigned int mode_count, mode_count_comp, i, last_height, last_width;
++    LARGE_INTEGER wait_begin, wait_end, performance_frequency;
++    static const unsigned int wait_count = 3;
+     double last_refresh_rate;
+     IDXGIAdapter *adapter;
+     IDXGIDevice *device;
+@@ -1435,6 +1437,19 @@ static void test_output(void)
+     }
+     ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
+ 
++    QueryPerformanceFrequency(&performance_frequency);
++    QueryPerformanceCounter(&wait_begin);
++    for (i = 0; i < wait_count; ++i)
++    {
++        hr = IDXGIOutput_WaitForVBlank(output);
++        ok(hr == S_OK, "WaitForVBlank call %u returned unexpected hr %#lx.\n", i, hr);
++    }
++    QueryPerformanceCounter(&wait_end);
++    ok(wait_end.QuadPart - wait_begin.QuadPart > performance_frequency.QuadPart / 2000,
++            "%u WaitForVBlank calls returned without a measurable wait.\n", wait_count);
++    ok(wait_end.QuadPart - wait_begin.QuadPart < performance_frequency.QuadPart,
++            "%u WaitForVBlank calls blocked for more than one second.\n", wait_count);
++
+     hr = IDXGIOutput_GetDisplayModeList(output, DXGI_FORMAT_R8G8B8A8_UNORM, 0, NULL, NULL);
+     ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#lx.\n", hr);
+ 
+diff --git a/dlls/msvcp140/msvcp140.spec b/dlls/msvcp140/msvcp140.spec
+index cd6c89e22e7b3cb561e93960ab6f7c57a2454d60..4ea860554b9e8a774214178ae1769dfe337e623f 100644
+--- a/dlls/msvcp140/msvcp140.spec
++++ b/dlls/msvcp140/msvcp140.spec
+@@ -72,7 +72,7 @@
+ @ cdecl -arch=win64 ??0?$basic_iostream@_WU?$char_traits@_W@std@@@std@@QEAA@PEAV?$basic_streambuf@_WU?$char_traits@_W@std@@@1@@Z(ptr ptr long) basic_iostream_wchar_ctor
+ @ stub -arch=arm ??0?$basic_istream@DU?$char_traits@D@std@@@std@@IAA@$$QAV01@@Z
+ @ stub -arch=i386 ??0?$basic_istream@DU?$char_traits@D@std@@@std@@IAE@$$QAV01@@Z
+-@ stub -arch=win64 ??0?$basic_istream@DU?$char_traits@D@std@@@std@@IEAA@$$QEAV01@@Z
++@ cdecl -arch=win64 ??0?$basic_istream@DU?$char_traits@D@std@@@std@@IEAA@$$QEAV01@@Z(ptr ptr long) basic_istream_char_ctor_move
+ @ cdecl -arch=arm ??0?$basic_istream@DU?$char_traits@D@std@@@std@@QAA@PAV?$basic_streambuf@DU?$char_traits@D@std@@@1@_N1@Z(ptr ptr long long long) basic_istream_char_ctor_init
+ @ thiscall -arch=i386 ??0?$basic_istream@DU?$char_traits@D@std@@@std@@QAE@PAV?$basic_streambuf@DU?$char_traits@D@std@@@1@_N1@Z(ptr ptr long long long) basic_istream_char_ctor_init
+ @ cdecl -arch=win64 ??0?$basic_istream@DU?$char_traits@D@std@@@std@@QEAA@PEAV?$basic_streambuf@DU?$char_traits@D@std@@@1@_N1@Z(ptr ptr long long long) basic_istream_char_ctor_init
+@@ -556,7 +556,7 @@
+ @ stub -arch=win64 ??4?$basic_iostream@_WU?$char_traits@_W@std@@@std@@IEAAAEAV01@$$QEAV01@@Z
+ @ stub -arch=arm ??4?$basic_istream@DU?$char_traits@D@std@@@std@@IAAAAV01@$$QAV01@@Z
+ @ stub -arch=i386 ??4?$basic_istream@DU?$char_traits@D@std@@@std@@IAEAAV01@$$QAV01@@Z
+-@ stub -arch=win64 ??4?$basic_istream@DU?$char_traits@D@std@@@std@@IEAAAEAV01@$$QEAV01@@Z
++@ cdecl -arch=win64 ??4?$basic_istream@DU?$char_traits@D@std@@@std@@IEAAAEAV01@$$QEAV01@@Z(ptr ptr) basic_istream_char_op_assign_move
+ @ stub -arch=arm ??4?$basic_istream@GU?$char_traits@G@std@@@std@@IAAAAV01@$$QAV01@@Z
+ @ stub -arch=i386 ??4?$basic_istream@GU?$char_traits@G@std@@@std@@IAEAAV01@$$QAV01@@Z
+ @ stub -arch=win64 ??4?$basic_istream@GU?$char_traits@G@std@@@std@@IEAAAEAV01@$$QEAV01@@Z
+diff --git a/dlls/msvcp140/tests/msvcp140.c b/dlls/msvcp140/tests/msvcp140.c
+index bad48e4934e5069f59d18060511ddfb743861ef2..776cd491c8a7a57e9742148032c623cf2c171925 100644
+--- a/dlls/msvcp140/tests/msvcp140.c
++++ b/dlls/msvcp140/tests/msvcp140.c
+@@ -2482,6 +2482,58 @@ static void test_exception_pointer(void)
+     ok(ptr2.ref == (void *)2, "ptr2.ref = %p\n", ptr2.ref);
+ }
+ 
++static void test_basic_istream_move(void)
++{
++#ifdef _WIN64
++    typedef void *(__cdecl *istream_ctor_t)(void *, void *, MSVCP_bool, MSVCP_bool);
++    typedef void *(__cdecl *istream_move_ctor_t)(void *, void *, MSVCP_bool);
++    typedef void *(__cdecl *istream_move_assign_t)(void *, void *);
++    typedef void (__cdecl *istream_dtor_t)(void *);
++    BYTE left[256] = {0}, right[256] = {0}, moved[256] = {0};
++    istream_move_ctor_t move_ctor;
++    istream_move_assign_t move_assign;
++    istream_ctor_t ctor;
++    istream_dtor_t dtor;
++    LONGLONG *left_count = (LONGLONG *)(left + sizeof(void *));
++    LONGLONG *right_count = (LONGLONG *)(right + sizeof(void *));
++    LONGLONG *moved_count = (LONGLONG *)(moved + sizeof(void *));
++    void *ret;
++
++    ctor = (void *)GetProcAddress(msvcp,
++            "??0?$basic_istream@DU?$char_traits@D@std@@@std@@QEAA@PEAV?$basic_streambuf@DU?$char_traits@D@std@@@1@_N@Z");
++    move_ctor = (void *)GetProcAddress(msvcp,
++            "??0?$basic_istream@DU?$char_traits@D@std@@@std@@IEAA@$$QEAV01@@Z");
++    move_assign = (void *)GetProcAddress(msvcp,
++            "??4?$basic_istream@DU?$char_traits@D@std@@@std@@IEAAAEAV01@$$QEAV01@@Z");
++    dtor = (void *)GetProcAddress(msvcp,
++            "??_D?$basic_istream@DU?$char_traits@D@std@@@std@@QEAAXXZ");
++    ok(!!ctor, "basic_istream constructor export not found\n");
++    ok(!!move_ctor, "basic_istream move constructor export not found\n");
++    ok(!!move_assign, "basic_istream move assignment export not found\n");
++    ok(!!dtor, "basic_istream destructor export not found\n");
++    if (!ctor || !move_ctor || !move_assign || !dtor) return;
++
++    ctor(left, NULL, FALSE, TRUE);
++    ctor(right, NULL, FALSE, TRUE);
++    *left_count = 11;
++    *right_count = 22;
++
++    ret = move_assign(left, right);
++    ok(ret == left, "move assignment returned %p, expected %p\n", ret, left);
++    ok(*left_count == 22, "left count is %I64d, expected 22\n", *left_count);
++    ok(*right_count == 11, "right count is %I64d, expected 11\n", *right_count);
++
++    ret = move_ctor(moved, right, TRUE);
++    ok(ret == moved, "move constructor returned %p, expected %p\n", ret, moved);
++    ok(*moved_count == 11, "moved count is %I64d, expected 11\n", *moved_count);
++    ok(*right_count == 0, "right count is %I64d, expected 0\n", *right_count);
++
++    dtor(moved);
++    dtor(right);
++    dtor(left);
++#endif
++}
++
+ START_TEST(msvcp140)
+ {
+     if(!init()) return;
+@@ -2514,5 +2566,6 @@ START_TEST(msvcp140)
+     test_codecvt_char16();
+     test_thread_library_reference();
+     test_exception_pointer();
++    test_basic_istream_move();
+     FreeLibrary(msvcp);
+ }
+diff --git a/dlls/msvcp90/ios.c b/dlls/msvcp90/ios.c
+index 71f8dc5315925abbdb67445a5eac72ed817c76b8..788ca5b01d82a611539868acfb0659df91685918 100644
+--- a/dlls/msvcp90/ios.c
++++ b/dlls/msvcp90/ios.c
+@@ -9669,6 +9669,31 @@ void __thiscall basic_istream_char_swap(basic_istream_char *this, basic_istream_
+     this->count ^= r->count;
+ }
+ 
++/* ??0?$basic_istream@DU?$char_traits@D@std@@@std@@IAE@$$QAV01@@Z */
++/* ??0?$basic_istream@DU?$char_traits@D@std@@@std@@IEAA@$$QEAV01@@Z */
++DEFINE_THISCALL_WRAPPER(basic_istream_char_ctor_move, 12)
++basic_istream_char* __thiscall basic_istream_char_ctor_move(
++        basic_istream_char *this, basic_istream_char *r, bool virt_init)
++{
++    TRACE("(%p %p %d)\n", this, r, virt_init);
++
++    basic_istream_char_ctor(this, NULL, FALSE, virt_init);
++    basic_istream_char_swap(this, r);
++    return this;
++}
++
++/* ??4?$basic_istream@DU?$char_traits@D@std@@@std@@IAEAAV01@$$QAV01@@Z */
++/* ??4?$basic_istream@DU?$char_traits@D@std@@@std@@IEAAAEAV01@$$QEAV01@@Z */
++DEFINE_THISCALL_WRAPPER(basic_istream_char_op_assign_move, 8)
++basic_istream_char* __thiscall basic_istream_char_op_assign_move(
++        basic_istream_char *this, basic_istream_char *r)
++{
++    TRACE("(%p %p)\n", this, r);
++
++    basic_istream_char_swap(this, r);
++    return this;
++}
++
+ /* Caution: basic_istream uses virtual inheritance. */
+ static inline basic_ios_wchar* basic_istream_wchar_get_basic_ios(basic_istream_wchar *this)
+ {
+diff --git a/dlls/ntdll/unix/file.c b/dlls/ntdll/unix/file.c
+index b641e4ca3361bab7e476b6449c6af92fefabd95a..3f7af640efe6235b13664a0cf16f8fea0bec08d7 100644
+--- a/dlls/ntdll/unix/file.c
++++ b/dlls/ntdll/unix/file.c
+@@ -1662,6 +1662,16 @@ static int parse_samba_dos_attrib_data( char *data, int len )
+ }
+ 
+ 
++static BOOL unix_mount_points_are_reparse_points(void)
++{
++    static int enabled = -1;
++
++    if (enabled == -1)
++        enabled = !getenv( "WINE_DISABLE_UNIX_MOUNT_REPARSE" );
++    return enabled;
++}
++
++
+ static BOOL fd_is_mount_point( int fd, const struct stat *st )
+ {
+     struct stat parent;
+@@ -1686,8 +1696,10 @@ static int fd_get_file_info( HANDLE handle, int fd, unsigned int options,
+     if (ret == -1) return ret;
+     *attr |= get_file_attributes( st );
+     if (reparse_tag) *reparse_tag = 0;
+-    /* consider mount points to be reparse points (IO_REPARSE_TAG_MOUNT_POINT) */
+-    if (options & FILE_OPEN_REPARSE_POINT)
++
++    /* Some applications canonicalize every reported reparse point through
++     * FSCTL_GET_REPARSE_POINT, for which Unix mount boundaries have no data. */
++    if (unix_mount_points_are_reparse_points() && (options & FILE_OPEN_REPARSE_POINT))
+     {
+         if (fd_is_mount_point( fd, st ))
+         {
+@@ -1795,11 +1807,11 @@ static int get_file_info( const char *path, struct stat *st, ULONG *attr, ULONG
+             if (reparse_tag) *reparse_tag = IO_REPARSE_TAG_LX_SYMLINK;
+         }
+     }
+-    else if (S_ISDIR( st->st_mode ) && (parent_path = malloc( len + 4 )))
++    else if (unix_mount_points_are_reparse_points() && S_ISDIR( st->st_mode )
++            && (parent_path = malloc( len + 4 )))
+     {
+         struct stat parent_st;
+ 
+-        /* consider mount points to be reparse points (IO_REPARSE_TAG_MOUNT_POINT) */
+         strcpy( parent_path, path );
+         strcat( parent_path, "/.." );
+         if (!stat( parent_path, &parent_st )
