@@ -1,0 +1,545 @@
+diff --git a/dlls/user32/clipboard.c b/dlls/user32/clipboard.c
+index 3c3ba7c584c9154d08c5cb128f5102186f765a00..18c8ace99dbd8c4985243d1fdc514185a941f8de 100644
+--- a/dlls/user32/clipboard.c
++++ b/dlls/user32/clipboard.c
+@@ -671,7 +671,9 @@ struct data_object
+     LONG refcount;
+ 
+     HWND target_hwnd; /* the last window the mouse was over */
+-    POINT target_pos;
++    HWND drop_target_hwnd; /* the window that registered drop_target */
++    DPI_AWARENESS_CONTEXT drop_target_dpi_context;
++    POINT target_pos; /* physical screen coordinates */
+     DWORD target_effect;
+     IDropTarget *drop_target;
+ 
+@@ -679,6 +681,8 @@ struct data_object
+     struct format_entry entries[];
+ };
+ 
++static void release_drop_target( struct data_object *object, BOOL leave );
++
+ static struct data_object *data_object_from_IDataObject( IDataObject *iface )
+ {
+     return CONTAINING_RECORD( iface, struct data_object, IDataObject_iface );
+@@ -862,12 +866,7 @@ static ULONG WINAPI data_object_Release( IDataObject *iface )
+ 
+     if (!ref)
+     {
+-        if (object->drop_target)
+-        {
+-            HRESULT hr = IDropTarget_DragLeave( object->drop_target );
+-            if (FAILED(hr)) WARN( "IDropTarget_DragLeave returned %#lx\n", hr );
+-            IDropTarget_Release( object->drop_target );
+-        }
++        release_drop_target( object, TRUE );
+ 
+         free( object );
+     }
+@@ -1135,6 +1134,49 @@ static HWND window_accepting_files( HWND hwnd )
+     return hwnd;
+ }
+ 
++static BOOL set_drop_target_dpi_context( DPI_AWARENESS_CONTEXT context,
++                                         DPI_AWARENESS_CONTEXT *previous )
++{
++    if (!context) return FALSE;
++    return !!(*previous = SetThreadDpiAwarenessContext( context ));
++}
++
++static BOOL map_raw_drop_point( HWND hwnd, POINT raw_point, POINT *point )
++{
++    *point = raw_point;
++    if (NtUserMessageCall( hwnd, WINE_DRAG_DROP_MAP_POINT, 0, 0, point,
++                           NtUserDragDropCall, FALSE ))
++        return TRUE;
++
++    WARN( "Failed to map raw point %s for window %p\n", wine_dbgstr_point( &raw_point ), hwnd );
++    return FALSE;
++}
++
++static HRESULT drop_target_drag_leave( struct data_object *object )
++{
++    DPI_AWARENESS_CONTEXT previous;
++    HRESULT hr;
++
++    if (!set_drop_target_dpi_context( object->drop_target_dpi_context, &previous )) return E_FAIL;
++    hr = IDropTarget_DragLeave( object->drop_target );
++    SetThreadDpiAwarenessContext( previous );
++    return hr;
++}
++
++static void release_drop_target( struct data_object *object, BOOL leave )
++{
++    if (!object->drop_target) return;
++    if (leave)
++    {
++        HRESULT hr = drop_target_drag_leave( object );
++        if (FAILED(hr)) WARN( "IDropTarget_DragLeave returned %#lx\n", hr );
++    }
++    IDropTarget_Release( object->drop_target );
++    object->drop_target = NULL;
++    object->drop_target_hwnd = NULL;
++    object->drop_target_dpi_context = NULL;
++}
++
+ BOOL drag_drop_enter( UINT entries_size, const struct format_entry *entries )
+ {
+     IDataObject *object, *previous;
+@@ -1148,7 +1190,11 @@ BOOL drag_drop_enter( UINT entries_size, const struct format_entry *entries )
+     dnd_data_object = object;
+     LeaveCriticalSection( &clipboard_cs );
+ 
+-    if (previous) IDataObject_Release( previous );
++    if (previous)
++    {
++        release_drop_target( data_object_from_IDataObject( previous ), TRUE );
++        IDataObject_Release( previous );
++    }
+     return TRUE;
+ }
+ 
+@@ -1158,59 +1204,108 @@ void drag_drop_leave(void)
+ 
+     TRACE("DND Operation canceled\n");
+ 
+-    if ((object = get_data_object( TRUE ))) IDataObject_Release( &object->IDataObject_iface );
++    if ((object = get_data_object( TRUE )))
++    {
++        release_drop_target( object, TRUE );
++        IDataObject_Release( &object->IDataObject_iface );
++    }
+ }
+ 
+-DWORD drag_drop_drag( HWND hwnd, POINT point, DWORD effect )
++DWORD drag_drop_drag( HWND hwnd, POINT raw_point, DWORD effect )
+ {
+     int accept = 0; /* Assume we're not accepting */
+-    POINTL pointl = {.x = point.x, .y = point.y};
+     struct data_object *object;
++    POINT point;
++    BOOL enter = FALSE;
+     HRESULT hr;
+ 
+-    TRACE( "hwnd %p, point %s, effect %#lx\n", hwnd, wine_dbgstr_point(&point), effect );
++    TRACE( "hwnd %p, raw_point %s, effect %#lx\n", hwnd,
++           wine_dbgstr_point( &raw_point ), effect );
+ 
+     if (!(object = get_data_object( FALSE ))) return DROPEFFECT_NONE;
+-    object->target_pos = point;
+-    hwnd = window_from_point_dnd( hwnd, object->target_pos );
++    if (!map_raw_drop_point( hwnd, raw_point, &point ))
++    {
++        object->target_effect = DROPEFFECT_NONE;
++        object->target_hwnd = NULL;
++        release_drop_target( object, TRUE );
++        IDataObject_Release( &object->IDataObject_iface );
++        return DROPEFFECT_NONE;
++    }
++    object->target_pos = raw_point;
++    hwnd = window_from_point_dnd( hwnd, point );
+ 
+     if (!object->drop_target || object->target_hwnd != hwnd)
+     {
+         /* Notify OLE of DragEnter. Result determines if we accept */
+         HWND dropTargetWindow;
+ 
++        object->target_effect = DROPEFFECT_NONE;
++
+         if (object->drop_target)
+-        {
+-            hr = IDropTarget_DragLeave( object->drop_target );
+-            if (FAILED(hr)) WARN( "IDropTarget_DragLeave returned %#lx\n", hr );
+-            IDropTarget_Release( object->drop_target );
+-            object->drop_target = NULL;
+-        }
++            release_drop_target( object, TRUE );
+ 
+         dropTargetWindow = hwnd;
+         do { object->drop_target = get_droptarget_pointer( dropTargetWindow ); }
+         while (!object->drop_target && !!(dropTargetWindow = GetParent( dropTargetWindow )));
+         object->target_hwnd = hwnd;
++        object->drop_target_hwnd = object->drop_target ? dropTargetWindow : NULL;
++        object->drop_target_dpi_context = object->drop_target ?
++            GetWindowDpiAwarenessContext( dropTargetWindow ) : NULL;
++        if (object->drop_target && !object->drop_target_dpi_context)
++            release_drop_target( object, FALSE );
++        enter = !!object->drop_target;
++    }
+ 
+-        if (object->drop_target)
++    /* DragOver must also run for the first position over a target.  The caller may
++     * drop without another position update, and DragEnter's effect is
++     * intentionally ignored for compatibility. */
++    if (object->drop_target)
++    {
++        POINT target_point;
++        POINTL pointl;
++        DPI_AWARENESS_CONTEXT previous;
++
++        if (!map_raw_drop_point( object->drop_target_hwnd, raw_point, &target_point ))
++        {
++            object->target_effect = DROPEFFECT_NONE;
++            release_drop_target( object, TRUE );
++            IDataObject_Release( &object->IDataObject_iface );
++            return DROPEFFECT_NONE;
++        }
++        pointl.x = target_point.x;
++        pointl.y = target_point.y;
++        if (!set_drop_target_dpi_context( object->drop_target_dpi_context, &previous ))
++        {
++            object->target_effect = DROPEFFECT_NONE;
++            release_drop_target( object, FALSE );
++            IDataObject_Release( &object->IDataObject_iface );
++            return DROPEFFECT_NONE;
++        }
++
++        if (enter)
+         {
+             DWORD effect_ignore = effect;
++
+             hr = IDropTarget_DragEnter( object->drop_target, &object->IDataObject_iface,
+                                         MK_LBUTTON, pointl, &effect_ignore );
+             if (hr == S_OK) TRACE( "the application accepted the drop (effect = %ld)\n", effect_ignore );
+             else
+             {
+                 WARN( "IDropTarget_DragEnter returned %#lx\n", hr );
+-                IDropTarget_Release( object->drop_target );
+-                object->drop_target = NULL;
++                release_drop_target( object, FALSE );
+             }
+         }
+-    }
+-    else if (object->drop_target)
+-    {
+-        hr = IDropTarget_DragOver( object->drop_target, MK_LBUTTON, pointl, &effect );
+-        if (hr == S_OK) object->target_effect = effect;
+-        else WARN( "IDropTarget_DragOver returned %#lx\n", hr );
++        if (object->drop_target)
++        {
++            hr = IDropTarget_DragOver( object->drop_target, MK_LBUTTON, pointl, &effect );
++            if (hr == S_OK) object->target_effect = effect;
++            else
++            {
++                object->target_effect = DROPEFFECT_NONE;
++                WARN( "IDropTarget_DragOver returned %#lx\n", hr );
++            }
++        }
++        SetThreadDpiAwarenessContext( previous );
+     }
+ 
+     if (object->drop_target && object->target_effect != DROPEFFECT_NONE)
+@@ -1248,11 +1343,28 @@ DWORD drag_drop_drop( HWND hwnd )
+     /* Notify OLE of Drop */
+     if (object->drop_target && effect != DROPEFFECT_NONE)
+     {
+-        POINTL pointl = {object->target_pos.x, object->target_pos.y};
++        POINT target_point;
++        POINTL pointl;
++        DPI_AWARENESS_CONTEXT previous;
+         HRESULT hr;
+ 
++        if (!map_raw_drop_point( object->drop_target_hwnd, object->target_pos, &target_point ))
++        {
++            object->target_effect = DROPEFFECT_NONE;
++            release_drop_target( object, TRUE );
++            goto drop_files;
++        }
++        pointl.x = target_point.x;
++        pointl.y = target_point.y;
++        if (!set_drop_target_dpi_context( object->drop_target_dpi_context, &previous ))
++        {
++            release_drop_target( object, FALSE );
++            goto drop_files;
++        }
+         hr = IDropTarget_Drop( object->drop_target, &object->IDataObject_iface,
+                                MK_LBUTTON, pointl, &effect );
++        SetThreadDpiAwarenessContext( previous );
++        release_drop_target( object, FALSE );
+         if (hr == S_OK)
+         {
+             if (effect != DROPEFFECT_NONE)
+@@ -1273,42 +1385,76 @@ DWORD drag_drop_drop( HWND hwnd )
+         }
+     }
+     else if (object->drop_target)
+-    {
+-        HRESULT hr = IDropTarget_DragLeave( object->drop_target );
+-        if (FAILED(hr)) WARN( "IDropTarget_DragLeave returned %#lx\n", hr );
+-        IDropTarget_Release( object->drop_target );
+-        object->drop_target = NULL;
+-    }
++        release_drop_target( object, TRUE );
+ 
++drop_files:
+     if (drop_file)
+     {
+         /* Only send WM_DROPFILES if Drop didn't succeed or DROPEFFECT_NONE was set.
+          * Doing both causes winamp to duplicate the dropped files (#29081) */
+-        HWND hwnd_drop = window_accepting_files(window_from_point_dnd( hwnd, object->target_pos ));
++        HWND hwnd_drop = window_accepting_files( object->target_hwnd );
+         FORMATETC format = {.cfFormat = CF_HDROP};
+         STGMEDIUM medium;
+ 
+         if (hwnd_drop && SUCCEEDED(IDataObject_GetData( &object->IDataObject_iface, &format, &medium )))
+         {
+             DROPFILES *drop = GlobalLock( medium.hGlobal );
+-            void *files = (char *)drop + drop->pFiles;
++            void *files;
++            DPI_AWARENESS_CONTEXT context, previous;
++            POINT client_point, screen_point;
+             RECT rect;
+ 
+-            drop->pt = object->target_pos;
+-            drop->fNC = !ScreenToClient( hwnd_drop, &drop->pt ) || !GetClientRect( hwnd_drop, &rect ) || !PtInRect( &rect, drop->pt );
++            /* data_object_GetData() always returns an owned TYMED_HGLOBAL with
++             * pUnkForRelease == NULL, so GlobalFree() is the matching cleanup. */
++            if (!drop)
++            {
++                GlobalFree( medium.hGlobal );
++                goto done;
++            }
++            files = (char *)drop + drop->pFiles;
++            if (!map_raw_drop_point( hwnd_drop, object->target_pos, &screen_point ))
++            {
++                GlobalUnlock( medium.hGlobal );
++                GlobalFree( medium.hGlobal );
++                goto done;
++            }
++            context = GetWindowDpiAwarenessContext( hwnd_drop );
++            if (!set_drop_target_dpi_context( context, &previous ))
++            {
++                GlobalUnlock( medium.hGlobal );
++                GlobalFree( medium.hGlobal );
++                goto done;
++            }
++            client_point = screen_point;
++            if (ScreenToClient( hwnd_drop, &client_point ) && GetClientRect( hwnd_drop, &rect ) &&
++                PtInRect( &rect, client_point ))
++            {
++                drop->pt = client_point;
++                drop->fNC = FALSE;
++            }
++            else
++            {
++                drop->pt = screen_point;
++                drop->fNC = TRUE;
++            }
++            SetThreadDpiAwarenessContext( previous );
+             TRACE( "Sending WM_DROPFILES: hwnd_drop %p, pt %s, fNC %u, files %p (%s)\n", hwnd_drop,
+                    wine_dbgstr_point( &drop->pt), drop->fNC, files, debugstr_w(files) );
+             GlobalUnlock( medium.hGlobal );
+ 
+-            PostMessageW( hwnd_drop, WM_DROPFILES, (WPARAM)medium.hGlobal, 0 );
+-            accept = 1;
+-            effect = DROPEFFECT_COPY;
++            if (PostMessageW( hwnd_drop, WM_DROPFILES, (WPARAM)medium.hGlobal, 0 ))
++            {
++                accept = 1;
++                effect = DROPEFFECT_COPY;
++            }
++            else GlobalFree( medium.hGlobal );
+         }
+     }
+ 
+     TRACE("effectRequested(0x%lx) accept(%d) performed(0x%lx) at x(%ld),y(%ld)\n",
+           object->target_effect, accept, effect, object->target_pos.x, object->target_pos.y);
+ 
++done:
+     if (!accept) effect = DROPEFFECT_NONE;
+     IDataObject_Release( &object->IDataObject_iface );
+ 
+@@ -1317,15 +1463,52 @@ DWORD drag_drop_drop( HWND hwnd )
+ 
+ void drag_drop_post( HWND hwnd, UINT drop_size, const DROPFILES *drop )
+ {
+-    POINT point = drop->pt;
++    DPI_AWARENESS_CONTEXT context, previous;
++    POINT client_point, point, raw_point = drop->pt;
+     HDROP handle;
++    RECT rect;
+ 
++    if (!map_raw_drop_point( hwnd, raw_point, &point )) return;
+     hwnd = window_accepting_files( window_from_point_dnd( hwnd, point ) );
+-    if ((handle = GlobalAlloc( GMEM_SHARE, drop_size )))
++    if (hwnd && (handle = GlobalAlloc( GMEM_SHARE, drop_size )))
+     {
+         DROPFILES *ptr = GlobalLock( handle );
++
++        if (!ptr)
++        {
++            GlobalFree( handle );
++            return;
++        }
+         memcpy( ptr, drop, drop_size );
++
++        if (!map_raw_drop_point( hwnd, raw_point, &point ))
++        {
++            GlobalUnlock( handle );
++            GlobalFree( handle );
++            return;
++        }
++        context = GetWindowDpiAwarenessContext( hwnd );
++        if (!set_drop_target_dpi_context( context, &previous ))
++        {
++            GlobalUnlock( handle );
++            GlobalFree( handle );
++            return;
++        }
++        client_point = point;
++        if (ScreenToClient( hwnd, &client_point ) && GetClientRect( hwnd, &rect ) &&
++            PtInRect( &rect, client_point ))
++        {
++            ptr->pt = client_point;
++            ptr->fNC = FALSE;
++        }
++        else
++        {
++            ptr->pt = point;
++            ptr->fNC = TRUE;
++        }
++        SetThreadDpiAwarenessContext( previous );
++
+         GlobalUnlock( handle );
+-        PostMessageW( hwnd, WM_DROPFILES, (WPARAM)handle, 0 );
++        if (!PostMessageW( hwnd, WM_DROPFILES, (WPARAM)handle, 0 )) GlobalFree( handle );
+     }
+ }
+diff --git a/dlls/win32u/clipboard.c b/dlls/win32u/clipboard.c
+index ec48cd0938186d27bef28091b38fb202c4bf1da9..e684cc020f79c6ba8600f75d7dc41ca2426d9bf0 100644
+--- a/dlls/win32u/clipboard.c
++++ b/dlls/win32u/clipboard.c
+@@ -758,35 +758,49 @@ LRESULT drag_drop_call( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void
+         return KeUserModeCallback( NtUserDragDropLeave, 0, 0, &ret_ptr, &ret_len );
+     case WINE_DRAG_DROP_DRAG:
+     {
+-        RECT rect = {GET_X_LPARAM(wparam), GET_Y_LPARAM(wparam), GET_X_LPARAM(wparam), GET_Y_LPARAM(wparam)};
+         struct drag_drop_drag_params params =
+         {
+             .hwnd = hwnd,
++            .point = {GET_X_LPARAM(wparam), GET_Y_LPARAM(wparam)},
+             .effect = lparam,
+         };
++        DWORD effect = DROPEFFECT_NONE;
++        UINT context, window_context;
+ 
+-        rect = map_rect_raw_to_virt( rect, get_thread_dpi() );
+-        params.point.x = rect.left;
+-        params.point.y = rect.top;
+-
+-        if (KeUserModeCallback( NtUserDragDropDrag, &params, sizeof(params), &ret_ptr, &ret_len ) || ret_len != sizeof(DWORD))
++        /* User32 hit-tests the raw XDND point under the event window's DPI context. */
++        if (!(window_context = get_window_dpi_awareness_context( hwnd )) ||
++            !(context = set_thread_dpi_awareness_context( window_context )))
+             return DROPEFFECT_NONE;
+-        return *(DWORD *)ret_ptr;
++
++        if (!KeUserModeCallback( NtUserDragDropDrag, &params, sizeof(params), &ret_ptr, &ret_len ) &&
++            ret_len == sizeof(DWORD))
++            effect = *(DWORD *)ret_ptr;
++        set_thread_dpi_awareness_context( context );
++        return effect;
+     }
+     case WINE_DRAG_DROP_DROP:
+     {
+         struct drag_drop_drop_params params = {.hwnd = hwnd};
+-        if (KeUserModeCallback( NtUserDragDropDrop, &params, sizeof(params), &ret_ptr, &ret_len ) || ret_len != sizeof(DWORD))
++        DWORD effect = DROPEFFECT_NONE;
++        UINT context, window_context;
++
++        /* User32 switches from this event-window context to the registered target. */
++        if (!(window_context = get_window_dpi_awareness_context( hwnd )) ||
++            !(context = set_thread_dpi_awareness_context( window_context )))
+             return DROPEFFECT_NONE;
+-        return *(DWORD *)ret_ptr;
++        if (!KeUserModeCallback( NtUserDragDropDrop, &params, sizeof(params), &ret_ptr, &ret_len ) &&
++            ret_len == sizeof(DWORD))
++            effect = *(DWORD *)ret_ptr;
++        set_thread_dpi_awareness_context( context );
++        return effect;
+     }
+ 
+     case WINE_DRAG_DROP_POST:
+     {
+         struct drag_drop_post_params *params;
+         const DROPFILES *drop = (DROPFILES *)lparam;
+-        RECT rect = {drop->pt.x, drop->pt.y, drop->pt.x, drop->pt.y};
+         UINT drop_size = wparam, size;
++        UINT context, window_context;
+         NTSTATUS status;
+ 
+         size = offsetof(struct drag_drop_post_params, drop) + drop_size;
+@@ -795,14 +809,34 @@ LRESULT drag_drop_call( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void
+         params->drop_size = drop_size;
+         memcpy( &params->drop, drop, drop_size );
+ 
+-        rect = map_rect_raw_to_virt( rect, get_thread_dpi() );
+-        params->drop.pt.x = rect.left;
+-        params->drop.pt.y = rect.top;
+-
++        if (!(window_context = get_window_dpi_awareness_context( hwnd )) ||
++            !(context = set_thread_dpi_awareness_context( window_context )))
++        {
++            free( params );
++            return STATUS_INVALID_PARAMETER;
++        }
+         status = KeUserModeCallback( NtUserDragDropPost, params, size, &ret_ptr, &ret_len );
++        set_thread_dpi_awareness_context( context );
+         free( params );
+         return status;
+     }
++    case WINE_DRAG_DROP_MAP_POINT:
++    {
++        POINT *point = data;
++        RECT rect;
++        UINT context, window_context;
++
++        if (!point || !(window_context = get_window_dpi_awareness_context( hwnd ))) return FALSE;
++        if (!(context = set_thread_dpi_awareness_context( window_context ))) return FALSE;
++
++        rect = (RECT){point->x, point->y, point->x, point->y};
++        rect = map_rect_raw_to_virt( rect, get_thread_dpi() );
++        point->x = rect.left;
++        point->y = rect.top;
++
++        set_thread_dpi_awareness_context( context );
++        return TRUE;
++    }
+ 
+     default:
+         FIXME( "Unknown NtUserDragDropCall msg %#x\n", msg );
+diff --git a/dlls/winex11.drv/event.c b/dlls/winex11.drv/event.c
+index 38ad7f89d66a38ef7364106fa5ddaefe3277d4cd..831cfdd73bab9f7f98bbdd66a7620036f2f2fa99 100644
+--- a/dlls/winex11.drv/event.c
++++ b/dlls/winex11.drv/event.c
+@@ -1535,6 +1535,9 @@ static void handle_xdnd_position_event( HWND hwnd, XClientMessageEvent *event )
+     e.data.l[3] = 0; /* Empty Rect */
+     e.data.l[4] = drop_effect_to_xdnd_action( effect );
+     XSendEvent( event->display, event->data.l[0], False, NoEventMask, (XEvent *)&e );
++    /* The source may keep sending positions without waiting for a reply.  Flush
++     * each status before a queued XdndLeave can overtake the acceptance. */
++    XFlush( event->display );
+ }
+ 
+ 
+diff --git a/include/ntuser.h b/include/ntuser.h
+index be41b33adfd79cf69d7735987af4be593eba4250..6d899ad229c1bc8183f7c60f0651f0e321d73144 100644
+--- a/include/ntuser.h
++++ b/include/ntuser.h
+@@ -333,7 +333,7 @@ struct format_entry
+ struct drag_drop_drag_params
+ {
+     HWND hwnd;
+-    POINT point;
++    POINT point; /* raw physical screen coordinates */
+     UINT effect;
+ };
+ 
+@@ -695,6 +695,7 @@ enum wine_drag_drop_call
+     WINE_DRAG_DROP_DRAG,
+     WINE_DRAG_DROP_DROP,
+     WINE_DRAG_DROP_POST,
++    WINE_DRAG_DROP_MAP_POINT,
+ };
+ 
+ struct ntuser_property_list
