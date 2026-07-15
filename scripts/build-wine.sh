@@ -190,7 +190,7 @@ done
 grep -q '^#define SONAME_LIBDBUS_1 "libdbus-1.so.3"' "$WINE_BUILD/include/config.h" ||
     die "build was configured without DBus support"
 
-patch_sha256=$(sha256sum "$WINE_PATCH" | awk '{print $1}')
+patch_sha256=$(encore_patch_sha256)
 stamp="$WINE_BUILD/.encore-build"
 temporary_stamp="$stamp.tmp.$$"
 trap 'rm -f "$temporary_stamp"' EXIT HUP INT TERM

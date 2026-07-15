@@ -23,11 +23,34 @@ WINE_BUILD=${WINE_BUILD:-"$PROJECT_ROOT/build/wine64"}
 WINE_BINARY=${ENCORE_WINE:-"$WINE_BUILD/wine"}
 WINE_INSTALL_PREFIX=${WINE_INSTALL_PREFIX:-/opt/encore-wine}
 ENCORE_PREFIX=${ENCORE_PREFIX:-"$PROJECT_ROOT/ableton-prefix"}
-WINE_PATCH="$PROJECT_ROOT/patches/encore-wine.patch"
+WINE_PATCH_DIR="$PROJECT_ROOT/patches/wine"
 
 say()
 {
     printf '%s\n' "$*"
+}
+
+# The ENCORE Wine patch is a set of semantic patch files under patches/wine/,
+# applied in sorted (filename) order. These helpers give the apply order and the
+# combined patch identity used throughout ENCORE's build and runtime verification.
+encore_wine_patch_files()
+{
+    for _encore_wine_patch in "$WINE_PATCH_DIR"/*.patch; do
+        [ -f "$_encore_wine_patch" ] || continue
+        printf '%s\n' "$_encore_wine_patch"
+    done
+    unset _encore_wine_patch
+}
+
+encore_patch_sha256()
+{
+    _encore_patch_count=0
+    for _encore_wine_patch in "$WINE_PATCH_DIR"/*.patch; do
+        [ -f "$_encore_wine_patch" ] && _encore_patch_count=$((_encore_patch_count + 1))
+    done
+    [ "$_encore_patch_count" -gt 0 ] || { unset _encore_wine_patch _encore_patch_count; return 1; }
+    unset _encore_wine_patch _encore_patch_count
+    cat "$WINE_PATCH_DIR"/*.patch | sha256sum | awk '{print $1}'
 }
 
 die()

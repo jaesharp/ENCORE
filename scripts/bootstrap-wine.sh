@@ -4,7 +4,8 @@
 
 require_command awk
 require_command sha256sum
-[ -f "$WINE_PATCH" ] || die "missing patch: $WINE_PATCH"
+[ -d "$WINE_PATCH_DIR" ] || die "missing patch directory: $WINE_PATCH_DIR"
+encore_patch_sha256 >/dev/null 2>&1 || die "no ENCORE Wine patches found in $WINE_PATCH_DIR"
 
 corresponding_source_marker="$WINE_SOURCE/.encore-corresponding-source"
 if [ -e "$corresponding_source_marker" ] || [ -L "$corresponding_source_marker" ]; then
@@ -23,7 +24,7 @@ if [ -e "$corresponding_source_marker" ] || [ -L "$corresponding_source_marker" 
             marker_valid=0
         fi
     } <"$corresponding_source_marker"
-    expected_patch_sha256=$(sha256sum "$WINE_PATCH" | awk '{print $1}')
+    expected_patch_sha256=$(encore_patch_sha256)
     [ "$marker_valid" = 1 ] &&
         [ "$marker_header" = ENCORE_CORRESPONDING_WINE_SOURCE_V1 ] &&
         [ "$marker_revision" = "wine_revision=$WINE_REVISION" ] &&
@@ -65,7 +66,7 @@ source_matches_patch()
     rm -f "$temporary_index"
     trap 'rm -f "$temporary_index"' EXIT HUP INT TERM
     GIT_INDEX_FILE=$temporary_index git -C "$WINE_SOURCE" read-tree HEAD || exit 1
-    GIT_INDEX_FILE=$temporary_index git -C "$WINE_SOURCE" apply --cached "$WINE_PATCH" || exit 1
+    GIT_INDEX_FILE=$temporary_index git -C "$WINE_SOURCE" apply --cached "$WINE_PATCH_DIR"/*.patch || exit 1
     GIT_INDEX_FILE=$temporary_index git -C "$WINE_SOURCE" update-index --refresh >/dev/null 2>&1 || exit 1
     GIT_INDEX_FILE=$temporary_index git -C "$WINE_SOURCE" diff-files --quiet || exit 1
     [ -z "$(GIT_INDEX_FILE=$temporary_index git -C "$WINE_SOURCE" ls-files --others --exclude-standard)" ]
@@ -83,7 +84,7 @@ if [ "$head" != "$WINE_REVISION" ]; then
     git -C "$WINE_SOURCE" switch --detach "$WINE_REVISION"
 fi
 
-if git -C "$WINE_SOURCE" apply --reverse --check "$WINE_PATCH" >/dev/null 2>&1; then
+if git -C "$WINE_SOURCE" apply --reverse --check "$WINE_PATCH_DIR"/*.patch >/dev/null 2>&1; then
     source_matches_patch || die "Wine contains changes beyond the ENCORE patch"
     say "Wine source is already patched at $WINE_REVISION"
     exit 0
@@ -93,6 +94,6 @@ if [ -n "$(git -C "$WINE_SOURCE" status --porcelain)" ]; then
     die "Wine has changes that do not exactly match the ENCORE patch"
 fi
 
-git -C "$WINE_SOURCE" apply --check "$WINE_PATCH"
-git -C "$WINE_SOURCE" apply "$WINE_PATCH"
-say "Applied ENCORE patch to Wine $WINE_REVISION"
+git -C "$WINE_SOURCE" apply --check "$WINE_PATCH_DIR"/*.patch
+git -C "$WINE_SOURCE" apply "$WINE_PATCH_DIR"/*.patch
+say "Applied ENCORE patch set to Wine $WINE_REVISION"
