@@ -78,6 +78,7 @@ any failure, with a quoted retry command); launch log `logs/ableton-dock.log`.
 | Solid black rectangles around plugin popup menus | Layered shadow windows never get per-pixel alpha | Fixed by patch `130` — see [layered-attr-sync.md](patches/layered-attr-sync.md). |
 | A plugin editor flickers between two sizes (half-size "ghost"); a modal in it can't be closed | Live's **Auto-Scale Plugin Window** hosts the editor DPI-unaware; its size negotiation never converges | Right-click the device header → untick **Auto-Scale Plugin Window**, reopen the editor (host config, not a Wine bug — see [present-dpi-context.md](patches/present-dpi-context.md)). |
 | A GL-rendered plugin editor collapses to 1×1 and wedges Live (X `BadMatch` in stderr) | GL present onto a non-default-visual window picks the wrong pict format | Fixed by patch `140` — see [gl-editor-visual.md](patches/gl-editor-visual.md). |
+| Black regions where the session/arrangement content should be, and a persistent CPU spin | Live's own GPU/GL renderer left on; under Wine (and especially GPU-less/headless software GL) it misrenders | The launcher forces Live's GDI backend (`-_ForceGdiBackend` in `Options.txt`); it self-heals on launch. Opt out with `ENCORE_LIVE_GPU=1`. |
 
 ## Reporting
 
