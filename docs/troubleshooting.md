@@ -73,6 +73,11 @@ any failure, with a quoted retry command); launch log `logs/ableton-dock.log`.
 | WineASIO missing from Live's audio device list | Host `libjack` not found, or WineASIO not built/registered | Install `pipewire-jack` and restart Live; WineASIO needs a **source** build (it isn't in the prebuilt runtime) and `configure-prefix.sh` to have registered it. See [wineasio.md](wineasio.md). |
 | Crackling / dropouts on WineASIO | Buffer size too small | Raise `WINEASIO_PREFERRED_BUFFERSIZE` to `512` (or the WineASIO panel's buffer). |
 | Audio goes silent after unplugging/replugging an interface | PipeWire doesn't restore JACK links on replug | `jacklinkd` (started by the launcher) restores links it has seen; a device that was never wired to Live needs manual routing. See [wineasio.md](wineasio.md). |
+| Opening a menu freezes Live for seconds; intermittent "VST3: plug window creation failed" | Stale shared-session views (vanilla-Wine coherence bug) | Fixed by patch `110` — see [shared-session-coherence.md](patches/shared-session-coherence.md); diagnose with `WINEDEBUG=warn+winstation,err+class`. |
+| Menus open then instantly close; keyboard shortcuts inert (strict WMs) | Zero-timestamp activation requests dropped by the WM | Fixed by patch `120` — see [activation-timestamps.md](patches/activation-timestamps.md). |
+| Solid black rectangles around plugin popup menus | Layered shadow windows never get per-pixel alpha | Fixed by patch `130` — see [layered-attr-sync.md](patches/layered-attr-sync.md). |
+| A plugin editor flickers between two sizes (half-size "ghost"); a modal in it can't be closed | Live's **Auto-Scale Plugin Window** hosts the editor DPI-unaware; its size negotiation never converges | Right-click the device header → untick **Auto-Scale Plugin Window**, reopen the editor (host config, not a Wine bug — see [present-dpi-context.md](patches/present-dpi-context.md)). |
+| A GL-rendered plugin editor collapses to 1×1 and wedges Live (X `BadMatch` in stderr) | GL present onto a non-default-visual window picks the wrong pict format | Fixed by patch `140` — see [gl-editor-visual.md](patches/gl-editor-visual.md). |
 
 ## Reporting
 
