@@ -53,9 +53,9 @@ feature) much easier to read.
 
 The patch set lives as a numbered series in [`patches/wine/`](../../patches/wine/),
 applied in order by `bootstrap-wine.sh`. The first six subsystems (`10`–`60`) are
-ENCORE's original delta; four further patches (`70`–`100`) are ported from
+ENCORE's original delta; nine further patches (`70`–`150`) are ported from
 **shibco/ableton-linux** (LGPL Wine fixes, attributed in each patch header and
-page). Each subsystem has its own page.
+page) via the `shibco-dev` integration branch. Each subsystem has its own page.
 
 | Page | Features | Primary source |
 | --- | --- | --- |
@@ -69,6 +69,11 @@ page). Each subsystem has its own page.
 | [midi-hotplug.md](midi-hotplug.md) | MIDI controller hotplug re-subscribe *(shibco)* | `dlls/winealsa.drv/alsamidi.c` |
 | [opengl-srgb.md](opengl-srgb.md) | EGL sRGB-capable pixel formats *(shibco)* | `dlls/win32u/opengl.c`, `dlls/winex11.drv/opengl.c` |
 | [push2-display.md](push2-display.md) | Ableton Push 2 display over host USB (libusb-1.0 bridge) *(shibco)* | `dlls/libusb-1.0/*` |
+| [shared-session-coherence.md](shared-session-coherence.md) | Shared-session view coherence (menu freezes, VST3 window creation) *(shibco)* | `dlls/win32u/winstation.c`, `server/mapping.c` |
+| [activation-timestamps.md](activation-timestamps.md) | Real `_NET_ACTIVE_WINDOW` timestamps (activation wedge) *(shibco)* | `dlls/winex11.drv/window.c` |
+| [layered-attr-sync.md](layered-attr-sync.md) | Layered-attribute sync (black popup shadows) *(shibco)* | `dlls/win32u/dce.c` |
+| [gl-editor-visual.md](gl-editor-visual.md) | Real drawable visual in `set_dc_drawable` (GL editor BadMatch) *(shibco)* | `dlls/winex11.drv/{init.c,window.c}` |
+| [present-dpi-context.md](present-dpi-context.md) | Present/resize rects in the window's DPI context *(shibco)* | `dlls/{wined3d,dxgi}/swapchain.c` |
 
 ## Full diffstat by subsystem
 
