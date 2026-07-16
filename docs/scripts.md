@@ -12,6 +12,7 @@ functions **inside `install.sh`**, not separate scripts.
 | `download-wine-runtime.sh` | runtime | Download, verify, and atomically install the prebuilt runtime. |
 | `bootstrap-wine.sh` | runtime | Clone Wine and apply the ENCORE patch idempotently (source builds). |
 | `build-wine.sh` | runtime | Configure, compile, and verify ENCORE Wine from source. |
+| `build-wineasio.sh` | runtime | Fetch, patch, and build WineASIO + `jacklinkd` against ENCORE Wine. |
 | `prepare-deps.sh` | runtime | Ubuntu/Debian local dev-header sysroot fallback. |
 | `package-wine-release.sh` | runtime | Build the runtime + source release archives from a completed build. |
 | `install-dependencies.sh` | deps | Distro package detection / check / print / install (runtime & build profiles). |
@@ -60,6 +61,11 @@ configures with `--enable-archs=i386,x86_64` + reproducible flags + ntsync
 headers, builds, then hard-verifies the WoW64 artifact set, `PE_ARCHS`,
 `HOST_ARCH`, and required `config.h` defines (incl. `HAVE_LINUX_NTSYNC_H`).
 Writes `build/wine64/.encore-build`. See [building.md](building.md).
+
+### `build-wineasio.sh`
+Clones WineASIO at the pinned revision, applies `patches/wineasio/*.patch`,
+builds the 64-bit driver against ENCORE's Wine, and compiles `jacklinkd`, all
+into `runtime/wineasio/`. Covered in depth in [wineasio.md](wineasio.md).
 
 ### `prepare-deps.sh`
 Ubuntu/Debian fallback: when DBus/PulseAudio/GStreamer/GLib dev packages can't be
