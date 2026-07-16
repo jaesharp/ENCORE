@@ -29,6 +29,7 @@ functions **inside `install.sh`**, not separate scripts.
 | `process-is-running.sh` | helper | True if a given executable path is running. |
 | `offer-github-star.sh` | helper | Optional end-of-install GitHub star prompt. |
 | `check-live-audio.sh` | maint | Launch Live and verify the WineASIO driver opens cleanly. |
+| `build-probes.sh` | maint | Build the diagnostic probes under `tools/probes/` into `build/probes/`. |
 | `uninstall.sh` | maint | Remove ENCORE's installed artifacts (menu entry; optionally prefix and build). |
 
 ## Runtime
@@ -173,6 +174,15 @@ Post-install smoke test for low-latency audio: launches Live via
 mismatch is the classic cause), or process exit, then shuts down the wineserver
 it started. Exit 0 = the driver opened cleanly. `ENCORE_CHECK_TIMEOUT` (default
 180s) bounds the wait. Needs a desktop session and an installed Live.
+
+### `build-probes.sh`
+Builds the six shibco-derived diagnostic probes (`tools/probes/` — see its
+[README](../tools/probes/README.md)) into `build/probes/`: `fakectl`/`xsettle`
+natively (ALSA/X11 headers required), the four PE probes CRT-free with the same
+mingw-w64 cross compiler the Wine build requires. Manual maintainer tooling —
+the `fakectl`+`midihot` pair verifies MIDI hotplug (patch `80`) without
+hardware; `dpispy`/`metricprobe`/`wmresize`/`xsettle` serve the HiDPI and
+windowing work.
 
 ### `uninstall.sh`
 Removes what ENCORE installed. By default only the application-menu entry — the
