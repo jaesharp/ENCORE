@@ -1,0 +1,81 @@
+ENCORE Wine patch -- reentrant WM_WINDOWPOSCHANGED suppression (high-DPI windowing)
+
+Adapted from shibco/ableton-linux NSPA patches 0003/0004 (reconciled onto ENCORE's
+wine-11.13 + 30-windowing-and-hidpi base). At high display scale Ableton Live's autosize
+handler re-drives SetWindowPos from inside its own WM_WINDOWPOSCHANGED handler; the
+nested, size-only repost re-enters the same top-level window and spins forever (80-99%
+of a core, the window continuously resizing).
+
+set_window_pos (dlls/win32u/window.c) + user_thread_info (ntuser_private.h): track the
+WM_WINDOWPOSCHANGED send depth and target hwnd per-thread (not process-global, to avoid a
+cross-thread race), and drop a nested size-only re-entry on the same top-level window.
+
+The companion custom-NC decoration gate -- get_mwm_decorations treating client == window
+as undecorated, so a reparenting WM (mutter/Marco) does not paint a SECOND frame around
+Live's own main-window chrome at high DPI -- lives in 30-windowing-and-hidpi.patch, folded
+into ENCORE's own get_mwm_decorations rework there (git apply --cached cannot stage two
+patches that edit one function). Not carried from the saga: the frame-extents
+reconstruction infrastructure (NSPA 0003) is a no-op on this base -- shibco's own 0006
+disables reconstruction and ENCORE never had it; the VST3 plugin-editor titlebar (0014) is
+left to ENCORE's own ENCORE_NATIVE_VST3_DECORATIONS.
+
+Verified at true 200% (Xvfb -dpi 192 + LogPixels 192 + IFEO dpiAwareness=2): Live's main
+window shows zero self-resize churn over 45s and compiles warning-clean (win32u.so).
+
+diff --git a/dlls/win32u/ntuser_private.h b/dlls/win32u/ntuser_private.h
+index 26bab84b2e..381e4262e8 100644
+--- a/dlls/win32u/ntuser_private.h
++++ b/dlls/win32u/ntuser_private.h
+@@ -132,6 +132,8 @@ struct user_thread_info
+     struct mouse_tracking_info   *mouse_tracking_info;    /* NtUserTrackMouseEvent handling */
+     struct opengl_thread_data    *opengl_data;            /* OpenGL private thread data */
+     struct list                   known_pointers;         /* list of known pointers */
++    HWND                          reentrant_wpchanged_hwnd;  /* window inside a nested WM_WINDOWPOSCHANGED send */
++    UINT                          reentrant_wpchanged_depth; /* nesting depth of WM_WINDOWPOSCHANGED sends */
+ };
+
+ extern struct user_thread_info *get_user_thread_info(void);
+diff --git a/dlls/win32u/window.c b/dlls/win32u/window.c
+index 2e7514addf..a472604202 100644
+--- a/dlls/win32u/window.c
++++ b/dlls/win32u/window.c
+@@ -4136,6 +4136,20 @@ BOOL set_window_pos( WINDOWPOS *winpos, int parent_x, int parent_y )
+     if (((winpos->flags & SWP_AGG_STATUSFLAGS) != SWP_AGG_NOPOSCHANGE)
+             && !((orig_flags & SWP_AGG_NOCLIENTCHANGE) && (orig_flags & SWP_SHOWWINDOW)))
+     {
++        /* Suppress a nested, size-only WM_WINDOWPOSCHANGED re-entering the same
++         * top-level window: Ableton Live's autosize handler re-drives SetWindowPos
++         * from inside its own WM_WINDOWPOSCHANGED, spinning forever at high DPI.
++         * Ported from shibco/ableton-linux NSPA patches 0003+0004 (per-thread state). */
++        static const UINT reentrant_resize_flags =
++            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
++        DWORD wpch_style = get_window_long( winpos->hwnd, GWL_STYLE );
++        struct user_thread_info *thread_info = get_user_thread_info();
++        BOOL suppress_reentrant_wpch =
++            !(wpch_style & WS_CHILD) &&
++            thread_info->reentrant_wpchanged_depth &&
++            thread_info->reentrant_wpchanged_hwnd == winpos->hwnd &&
++            (orig_flags & reentrant_resize_flags) == reentrant_resize_flags &&
++            !(orig_flags & (SWP_NOSIZE | SWP_SHOWWINDOW | SWP_HIDEWINDOW));
+         /* WM_WINDOWPOSCHANGED is sent even if SWP_NOSENDCHANGING is set
+            and always contains final window position.
+          */
+@@ -4143,7 +4157,17 @@ BOOL set_window_pos( WINDOWPOS *winpos, int parent_x, int parent_y )
+         winpos->y  = new_rects.window.top;
+         winpos->cx = new_rects.window.right - new_rects.window.left;
+         winpos->cy = new_rects.window.bottom - new_rects.window.top;
+-        send_message( winpos->hwnd, WM_WINDOWPOSCHANGED, 0, (LPARAM)winpos );
++        if (!suppress_reentrant_wpch)
++        {
++            HWND prev_hwnd = thread_info->reentrant_wpchanged_hwnd;
++            UINT prev_depth = thread_info->reentrant_wpchanged_depth;
++
++            thread_info->reentrant_wpchanged_hwnd = winpos->hwnd;
++            thread_info->reentrant_wpchanged_depth = prev_depth + 1;
++            send_message( winpos->hwnd, WM_WINDOWPOSCHANGED, 0, (LPARAM)winpos );
++            thread_info->reentrant_wpchanged_hwnd = prev_hwnd;
++            thread_info->reentrant_wpchanged_depth = prev_depth;
++        }
+     }
+
+     if ((winpos->flags & (SWP_NOSIZE|SWP_NOMOVE|SWP_FRAMECHANGED)) != (SWP_NOSIZE|SWP_NOMOVE))
