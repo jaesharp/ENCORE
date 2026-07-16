@@ -1899,7 +1899,11 @@ main()
         info "$live_product does not require ENCORE's Live 12 WebView2 setup"
     fi
 
-    run_stage 'Enable host files and native folder picking' "$SCRIPTS/configure-prefix.sh"
+    # configure-prefix.sh applies a display-scale DPI policy when run standalone
+    # (ENCORE_DPI_MODE=auto); inside the installer the next stage applies the
+    # chosen DPI explicitly, so default the policy to preserve here.
+    run_stage 'Configure the prefix (host files, folder picker, Push 2, WineASIO)' \
+        env ENCORE_DPI_MODE="${ENCORE_DPI_MODE:-preserve}" "$SCRIPTS/configure-prefix.sh"
     run_stage 'Apply display scaling' "$SCRIPTS/set-dpi.sh" "$dpi"
     if [[ $live_requires_webview2 -eq 1 ]]; then
         run_stage 'Install the Learn View font fallback' "$SCRIPTS/install-webview-font.sh"

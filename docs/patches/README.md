@@ -1,14 +1,17 @@
 # The ENCORE Wine patch
 
-`patches/encore-wine.patch` is the complete source delta that turns an upstream
-Wine checkout into "ENCORE Wine" — the runtime that runs Ableton Live 11 and 12.
-It is the intellectual core of the project: everything else in the repository
-exists to build, apply, download, verify, or configure this patch.
+The numbered patch series under [`patches/wine/`](../../patches/wine/) is the
+complete source delta that turns an upstream Wine checkout into "ENCORE Wine" —
+the runtime that runs Ableton Live 11 and 12. It is the intellectual core of the
+project: everything else in the repository exists to build, apply, verify, or
+configure these patches.
 
-The default install downloads a **prebuilt runtime** built from exactly this
-patch; its `.encore-runtime` manifest records the patch's SHA-256 and is checked
-before activation (see [../building.md](../building.md)). A source build applies
-the patch locally via `bootstrap-wine.sh`.
+The default install **builds from source**: `bootstrap-wine.sh` applies the
+series to the pinned checkout. The opt-in prebuilt runtime (`--prebuilt`) was
+built from the series as of its `r1` snapshot; its `.encore-runtime` manifest
+records that snapshot's combined SHA-256 and is checked before activation (see
+[../building.md](../building.md)) — patches added since `r1` (the shibco ports,
+`31` and `70`–`150`) are only in source builds until a runtime is republished.
 
 ## Canonical build facts
 
@@ -21,7 +24,9 @@ change, change them here first.
 | Upstream remote | `https://gitlab.winehq.org/wine/wine.git` | `scripts/common.sh` (`WINE_REMOTE`) |
 | Resulting version string | `wine-11.13` | verified by `build-wine.sh`, `download-wine-runtime.sh`, and `wine_build_ready()` |
 | Prebuilt runtime revision | `r1` (`encore-wine-11.13-r1-…`) | `scripts/common.sh` (`ENCORE_RUNTIME_REVISION`) |
-| Patch size | 40 files, 4549 insertions, 163 deletions | `git apply --stat patches/encore-wine.patch` |
+| Patch series | 16 files, `patches/wine/NN-*.patch` | `ls patches/wine/` |
+| Series size | 59 Wine files, 6118 insertions, 213 deletions | `git apply --numstat patches/wine/*.patch` |
+| Combined identity | `bf918c6b3750fa8ed6bfa6eeaed29063d8d02a9c269b3d516478db83670c2a1c` | `cat patches/wine/*.patch \| sha256sum` (`encore_patch_sha256` in `common.sh`) |
 
 ## Scope boundary
 
@@ -52,16 +57,19 @@ feature) much easier to read.
 ## Feature index
 
 The patch set lives as a numbered series in [`patches/wine/`](../../patches/wine/),
-applied in order by `bootstrap-wine.sh`. The first six subsystems (`10`–`60`) are
-ENCORE's original delta; nine further patches (`70`–`150`) are ported from
-**shibco/ableton-linux** (LGPL Wine fixes, attributed in each patch header and
-page) via the `shibco-dev` integration branch. Each subsystem has its own page.
+applied by `bootstrap-wine.sh` in shell-glob (lexical) order — `100` sorts before
+`20`; the patches are disjoint enough that order carries no meaning. Six
+subsystems (`10`–`60`) are ENCORE's original delta; the remaining ten (`31` and
+`70`–`150`) are ported from **shibco/ableton-linux** (LGPL — the same license as
+Wine, confirmed by the maintainer; attributed in each patch header and page) via
+the `shibco-dev` integration branch. Each subsystem has its own page.
 
 | Page | Features | Primary source |
 | --- | --- | --- |
 | [portal-file-picker.md](portal-file-picker.md) | Native xdg-desktop-portal file chooser | `dlls/comdlg32/*` |
 | [cpu-and-threads.md](cpu-and-threads.md) | `WINE_CPU_TOPOLOGY` override; stale-thread recovery | `dlls/ntdll/unix/*`, `server/*` |
-| [windowing-and-hidpi.md](windowing-and-hidpi.md) | VST3 plugin windows; HiDPI config-rounding | `dlls/win32u/*`, `dlls/winex11.drv/*` |
+| [windowing-and-hidpi.md](windowing-and-hidpi.md) | VST3 plugin windows; HiDPI config-rounding; custom-NC decoration gate | `dlls/win32u/*`, `dlls/winex11.drv/*` |
+| [windowing-nspa.md](windowing-nspa.md) | Reentrant `WM_WINDOWPOSCHANGED` suppression (HiDPI resize loop) *(shibco)* | `dlls/win32u/{window.c,ntuser_private.h}` |
 | [drag-and-drop.md](drag-and-drop.md) | Host-file drag-and-drop | `dlls/user32/clipboard.c`, `dlls/win32u/clipboard.c` |
 | [menu-theming.md](menu-theming.md) | Dynamic menu-bar theming | `dlls/win32u/menu.c` |
 | [runtime-fixes.md](runtime-fixes.md) | DXGI vblank pacing; msvcp `basic_istream`; mount-reparse | `dlls/dxgi`, `dlls/msvcp*`, `dlls/ntdll/unix/file.c` |
@@ -75,31 +83,19 @@ page) via the `shibco-dev` integration branch. Each subsystem has its own page.
 | [gl-editor-visual.md](gl-editor-visual.md) | Real drawable visual in `set_dc_drawable` (GL editor BadMatch) *(shibco)* | `dlls/winex11.drv/{init.c,window.c}` |
 | [present-dpi-context.md](present-dpi-context.md) | Present/resize rects in the window's DPI context *(shibco)* | `dlls/{wined3d,dxgi}/swapchain.c` |
 
-## Full diffstat by subsystem
+## Full diffstat
 
 Regenerate at any time with:
 
 ```sh
-git apply --stat patches/encore-wine.patch
+git apply --stat patches/wine/*.patch
 ```
 
-Summary of the 40 files:
-
-- **comdlg32 (portal file picker):** `Makefile.in`, `cdlg.h`, `cdlg32.c`,
-  `filedlg.c` (+678), `itemdlg.c` (+714), `portal_dbus.c` (+1193, new),
-  `unixlib.c` (new), `unixlib.h` (new), plus `include/wine/appdefaults.h` (new)
-  and its `include/Makefile.in` registration.
-- **ntdll + wineserver (CPU topology, threads, mounts):**
-  `dlls/ntdll/unix/{file.c,server.c,system.c,thread.c,unix_private.h}`,
-  `server/{process.c,process.h,protocol.def,ptrace.c,request_handlers.h,request_trace.h,thread.c,thread.h,trace.c}`,
-  `include/wine/server_protocol.h`.
-- **win32u + winex11.drv + user32 (windows, DnD, menus):**
-  `dlls/win32u/{clipboard.c,menu.c,message.c,window.c}`,
-  `dlls/winex11.drv/{event.c,window.c,x11drv.h}`,
-  `dlls/user32/clipboard.c`, `dlls/user32/tests/menu.c`, `include/ntuser.h`.
-- **Rendering / runtime fixes:** `dlls/dxgi/output.c` + `dlls/dxgi/tests/dxgi.c`,
-  `dlls/msvcp140/msvcp140.spec` + `dlls/msvcp140/tests/msvcp140.c`,
-  `dlls/msvcp90/ios.c`.
+The series touches 59 distinct Wine source files. Per-feature file lists live on
+each feature page; the largest single subsystems are the portal file picker
+(`10`, ~3100 lines across `dlls/comdlg32/*`), CPU topology + stale-thread
+recovery (`20`, `dlls/ntdll/unix/*` + `server/*`), and the windowing/HiDPI work
+(`30`/`31`, `dlls/win32u/*` + `dlls/winex11.drv/*`).
 
 ## Applying the patch
 
@@ -124,7 +120,9 @@ When moving to a newer upstream Wine:
 1. Update `WINE_REVISION` in `scripts/common.sh` **and** `install.sh` (they must
    match — `wine_build_ready()` compares the build stamp against `install.sh`'s
    value).
-2. Regenerate `patches/encore-wine.patch` against the new revision.
+2. Regenerate the `patches/wine/` series against the new revision (each file
+   must apply independently with `git apply`, and the whole set in one
+   `git apply --cached` invocation — no two patches may edit the same function).
 3. Confirm `build-wine.sh` still finds every required `SONAME_*` define and DLL
    artifact (it hard-fails otherwise).
 4. Confirm the reported version string in `build-wine.sh` and

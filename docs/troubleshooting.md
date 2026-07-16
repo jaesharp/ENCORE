@@ -20,6 +20,8 @@ ENCORE_DRY_RUN=1 scripts/run-ableton.sh
 
 Then the logs: install logs `logs/install-YYYYmmdd-HHMMSS.log` (path printed on
 any failure, with a quoted retry command); launch log `logs/ableton-dock.log`.
+For audio, `scripts/check-live-audio.sh` launches Live and verifies the WineASIO
+driver opens cleanly (exit 0 = pass).
 
 ## Obtaining Wine (prebuilt runtime)
 
@@ -79,6 +81,9 @@ any failure, with a quoted retry command); launch log `logs/ableton-dock.log`.
 | A plugin editor flickers between two sizes (half-size "ghost"); a modal in it can't be closed | Live's **Auto-Scale Plugin Window** hosts the editor DPI-unaware; its size negotiation never converges | Right-click the device header → untick **Auto-Scale Plugin Window**, reopen the editor (host config, not a Wine bug — see [present-dpi-context.md](patches/present-dpi-context.md)). |
 | A GL-rendered plugin editor collapses to 1×1 and wedges Live (X `BadMatch` in stderr) | GL present onto a non-default-visual window picks the wrong pict format | Fixed by patch `140` — see [gl-editor-visual.md](patches/gl-editor-visual.md). |
 | Black regions where the session/arrangement content should be, and a persistent CPU spin | Live's own GPU/GL renderer left on; under Wine (and especially GPU-less/headless software GL) it misrenders | The launcher forces Live's GDI backend (`-_ForceGdiBackend` in `Options.txt`); it self-heals on launch. Opt out with `ENCORE_LIVE_GPU=1`. |
+| A second title bar / second set of window controls framing Live's main window at high display scale | The WM decorates Live's custom-NC window (it draws its own chrome), which `window == visible` stops gating at scale | Fixed by the custom-NC gate in patch `30` — see [windowing-and-hidpi.md](patches/windowing-and-hidpi.md); needs a current source build. |
+| Live's main window resizes itself in a tight loop at high DPI; one core pinned | Live's autosize handler re-enters `SetWindowPos` from its own `WM_WINDOWPOSCHANGED` | Suppressed by patch `31` — see [windowing-nspa.md](patches/windowing-nspa.md). |
+| Live renders tiny, or blurry/bitmap-scaled, on a HiDPI display | Prefix DPI and per-monitor awareness not matched to the display | `./install.sh --no-build --scale 200` (or `scripts/set-dpi.sh 192`) sets `LogPixels` **and** the `dpiAwareness` matched-set; standalone `configure-prefix.sh` auto-applies it (`ENCORE_DPI_MODE`). Kill the prefix's `wineserver` after changing the X server's DPI. |
 
 ## Reporting
 
