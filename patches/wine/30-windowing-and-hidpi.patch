@@ -137,10 +137,14 @@ index 297695749a165d6932486fba6c187d00e80121cb..e14c9766f74e9a25e92e0201f16b4163
  
  /***********************************************************************
   *              get_mwm_decorations
-@@ -507,7 +544,7 @@ static unsigned long get_mwm_decorations_for_style( DWORD style, DWORD ex_style
+@@ -507,7 +544,11 @@ static unsigned long get_mwm_decorations_for_style( DWORD style, DWORD ex_style
  static unsigned long get_mwm_decorations( struct x11drv_win_data *data, DWORD style, DWORD ex_style )
  {
      if (EqualRect( &data->rects.window, &data->rects.visible )) return 0;
++    /* Custom-NC windows (client == window, e.g. Ableton Live's main window) render their
++     * own chrome; a reparenting WM would paint a second frame around it -- visible at high
++     * DPI, where window != visible stops gating this. From shibco/ableton-linux NSPA 0004. */
++    if (EqualRect( &data->rects.window, &data->rects.client )) return 0;
 -    return get_mwm_decorations_for_style( style, ex_style );
 +    return get_mwm_decorations_for_window( data->hwnd, style, ex_style );
  }
