@@ -1,8 +1,11 @@
 # VST3 plugin windows & HiDPI config-rounding (win32u + winex11.drv)
 
-Two window-management features share this subsystem: special-casing of VST3
-plug-in editor windows, and a state machine that keeps HiDPI window geometry
-stable under Xwayland.
+Three window-management features share this subsystem: special-casing of VST3
+plug-in editor windows, a state machine that keeps HiDPI window geometry
+stable under Xwayland, and a gate that keeps the WM from double-decorating
+Live's custom-non-client main window. Its companion patch,
+[windowing-nspa.md](windowing-nspa.md) (`31`), suppresses the reentrant
+`WM_WINDOWPOSCHANGED` resize loop.
 
 ## Part 1 — VST3 plugin window handling
 
@@ -102,6 +105,26 @@ Key mechanics:
 `NtUserSetWindowPos` there, so coordinates cross the DPI boundary once instead
 of being rounded through the message thread's (possibly different) context.
 
+## Part 3 — custom-NC decoration gate
+
+### Problem
+
+Live's main window is **custom-non-client**: it `NCCALCSIZE`s its client area
+to cover the whole window and draws its own title bar and window controls.
+`get_mwm_decorations` already treats `window == visible` as "undecorated", but
+that equivalence stops holding once the display scales — so at high DPI a
+reparenting WM (Mutter, Marco) requests decorations and paints a **second**
+frame and set of window controls around Live's own.
+
+### What the patch does
+
+`get_mwm_decorations` (`dlls/winex11.drv/window.c`) also returns no decorations
+when `client == window` — the robust signal for an app-drawn-chrome top-level,
+independent of scale. Ported from shibco/ableton-linux (NSPA 0004, LGPL — the
+same license as Wine). It lives in this patch rather than beside its companion
+(`31`) because both would otherwise edit the same function, which
+`bootstrap-wine.sh`'s single `git apply --cached` invocation cannot stage.
+
 ## Key files
 
 | File | Role |
@@ -127,3 +150,7 @@ confirm the size never changes; watch `WINEDEBUG=+x11drv` for
 `tracking config … request`, `activating config rounding alias`, and
 `applying rounded config move … without resizing` traces. Live's main window
 should refuse to shrink below the configured minimum visible size.
+
+For the custom-NC gate: with the HiDPI matched-set applied (`LogPixels=192` +
+IFEO `dpiAwareness=2`), Live's main window must show exactly **one** title bar
+and one set of window controls — Live's own, with no WM frame around them.

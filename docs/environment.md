@@ -4,7 +4,7 @@ ENCORE is configured largely through environment variables. `ENCORE_*` are
 ENCORE's own knobs (read by the scripts, and a few directly by the patched Wine);
 `WINE_*` and standard Wine variables are consumed by Wine at runtime. Unless
 noted, launcher defaults are applied by `scripts/run-ableton.sh`. "Consumer =
-patch" means the value is read via `getenv()` inside `patches/encore-wine.patch`;
+patch" means the value is read via `getenv()` inside the `patches/wine/` series;
 those are documented in depth on the linked feature pages.
 
 ## Precedence
@@ -27,7 +27,7 @@ isn't already set.
 ## Launcher runtime toggles
 
 All read by `run-ableton.sh`; the VST3/menu/min-size ones are acted on inside
-the patch. Unchanged from earlier ENCORE.
+the patch.
 
 | Variable | Default | Consumer | Effect |
 | --- | --- | --- | --- |
@@ -49,6 +49,13 @@ Default `ENCORE_WEBVIEW2_FLAGS`:
 --disable-features=ForceSWDCompWhenDCompFallbackRequired
 --edge-webview-foreground-boost-opt-out --no-sandbox
 ```
+
+## Prefix-configuration and diagnostic variables
+
+| Variable | Default | Consumer | Effect |
+| --- | --- | --- | --- |
+| `ENCORE_DPI_MODE` | `auto` | `configure-prefix.sh` | DPI policy. `auto` detects the display scale (`detect-scale.sh`) and applies the calibrated block: `100` = LogPixels 96 + awareness off; `hidpi` = LogPixels 192 + IFEO `dpiAwareness=2`. `preserve` leaves the prefix untouched; `100`/`hidpi` force a block. Uncalibrated scales and custom prefix values are preserved under `auto`. The installer runs this stage with `preserve` — its own display-scaling stage (`set-dpi.sh`) follows and is authoritative there. |
+| `ENCORE_CHECK_TIMEOUT` | `180` | `check-live-audio.sh` | Seconds to wait for Live to open the audio driver before failing. |
 
 ## Wine variables ENCORE sets or honours
 

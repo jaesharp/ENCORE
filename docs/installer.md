@@ -68,8 +68,13 @@ confirmed.
     folder's `Redist/`.
 13. **Install the WebView2 Runtime** *(Live 12 only)* — runs the WebView2 setup;
     needs internet; waits for the EdgeWebView runtime to appear.
-14. **Enable host files and native folder picking** (`configure-prefix.sh`).
-15. **Apply display scaling** (`set-dpi.sh`).
+14. **Configure the prefix** (`configure-prefix.sh`) — host drives + native
+    folder picking, the Push 2 display-bridge DllOverride, and WineASIO
+    registration (when built). Its display-scale DPI policy runs as `preserve`
+    here because the next stage owns DPI.
+15. **Apply display scaling** (`set-dpi.sh`) — writes `LogPixels` **and** keeps
+    the Live executable's `dpiAwareness` matched-set in step (set above 96 DPI,
+    removed at 96).
 16. **Install the Learn View font fallback** *(Live 12 only)* (`install-webview-font.sh`).
 17. **Save launcher paths** (`save_runtime_config`) → `.encore/runtime.conf`.
 18. **Install the application-menu entry** (`install-desktop.sh`) unless `--no-desktop`.
@@ -127,7 +132,13 @@ The wizard recommends a DPI from the current desktop/monitor; you always choose.
 | 200% | 192 |
 | 250% | 240 |
 
-Change it later with `./install.sh --no-build --dpi N`.
+Change it later with `./install.sh --no-build --dpi N`. The scaling stage also
+maintains per-monitor awareness: above 96 DPI the Live executable's Image File
+Execution Options carry `dpiAwareness=2` (Live reads the monitor DPI from the X
+server), removed again at 96 — see the windowing feature pages for why the
+matched-set matters. Standalone `configure-prefix.sh` runs can instead
+auto-detect and apply a calibrated block via `ENCORE_DPI_MODE`
+(see [environment.md](environment.md)).
 
 ## Safety and resume model
 

@@ -10,9 +10,9 @@ copy of your own already-installed Live application folder. It supplies the hard
 compatibility work — native file dialogs, HiDPI, VST3 hosting, audio,
 drag-and-drop, themed menus, and (Live 12) the Learn View — from one command.
 
-The intellectual core is one file: `patches/encore-wine.patch`
+The intellectual core is the numbered Wine patch series under `patches/wine/`
 (see [patches/README.md](patches/README.md)). Everything else builds, downloads,
-verifies, or configures a Wine that carries that patch.
+verifies, or configures a Wine that carries those patches.
 
 ## Two things you supply, two things ENCORE supplies
 
@@ -41,10 +41,15 @@ verifies, or configures a Wine that carries that patch.
    │   (install.sh import)  copy your installed Live folder ─▶ prefix    │
    │                                                                     │
    │ PREFIX CONFIG                                                       │
-   │   configure-prefix.sh  portal picker + host drives                 │
-   │   set-dpi.sh           Wine DPI                     ─▶ ableton-prefix/
+   │   configure-prefix.sh  portal + host drives + Push 2 + WineASIO    │
+   │   detect-scale.sh      display-scale probe (sourced)               │
+   │   set-dpi.sh           Wine DPI + awareness         ─▶ ableton-prefix/
    │   install-webview-font.sh  Learn View Arial (Live 12)              │
    │   install-desktop.sh   application-menu entry                      │
+   │                                                                     │
+   │ MAINTENANCE                                                         │
+   │   check-live-audio.sh  verify the WineASIO driver opens            │
+   │   uninstall.sh         remove ENCORE's installed artifacts         │
    └─────────────────────────────────────────────────────────────────────┘
                      │
                      ▼
@@ -62,8 +67,9 @@ verifies, or configures a Wine that carries that patch.
 system check → normalize config → prepare choices → plan → install packages →
 **obtain Wine** (build from source *or* download prebuilt) → register prefix →
 **import your Live folder** → initialize prefix (`wineboot`) → install the
-Visual C++ runtime → install WebView2 (Live 12) → enable host files + portal →
-set DPI → install Learn View font (Live 12) → save launcher paths → desktop
+Visual C++ runtime → install WebView2 (Live 12) → configure the prefix (host
+files + portal + Push 2 + WineASIO) → apply display scaling (DPI + per-monitor
+awareness) → install Learn View font (Live 12) → save launcher paths → desktop
 entry → verify.
 
 **Run** (`scripts/launch-ableton.sh` → `run-ableton.sh`) — read the saved paths,
@@ -123,9 +129,12 @@ See [installer.md](installer.md) for the full safety and resume model.
 - ENCORE redistributes **no** Ableton software; you supply your own installed
   Live folder, and ENCORE runs only the Microsoft prerequisites bundled inside
   it (Visual C++; for Live 12, WebView2).
-- The Wine patch is a source delta under the applicable upstream Wine file
-  licenses (the prebuilt runtime is built from exactly that pinned source; the
-  matching source archive is published alongside each release).
+- The Wine patch series is a source delta under the applicable upstream Wine
+  file licenses (the prebuilt runtime is built from exactly that pinned source;
+  the matching source archive is published alongside each release). Ten of the
+  patches (`31`, `70`–`150`) and several helper scripts are ported from
+  **shibco/ableton-linux**, whose maintainer confirmed all tools and source in
+  that repository are LGPL — the same license as Wine.
 - The Learn View font fallback is generated locally from your installed
   Liberation Sans (see [scripts.md](scripts.md)); no font binary is shipped.
 
@@ -134,6 +143,6 @@ See [installer.md](installer.md) for the full safety and resume model.
 - Advanced users: [installer.md](installer.md) → [environment.md](environment.md)
   → [troubleshooting.md](troubleshooting.md).
 - Building the runtime yourself: [building.md](building.md).
-- Contributors on the patch: [patches/README.md](patches/README.md) and the six
+- Contributors on the patch: [patches/README.md](patches/README.md) and the
   feature pages.
 - Terminology: [glossary.md](glossary.md).

@@ -85,4 +85,7 @@ The build is verified end-to-end (the patched driver compiles and links against
 ENCORE's Wine; `jacklinkd` compiles and links against the host JACK; the launcher
 wires everything when `runtime/wineasio/` is present). The **runtime** behaviour —
 Live listing WineASIO, low-latency playback, and link recovery on replug — needs a
-JACK/PipeWire session and audio hardware to confirm.
+JACK/PipeWire session and audio hardware to confirm. `scripts/check-live-audio.sh`
+automates the first check: it launches Live, watches the Live log until the audio
+driver reports `Open: finished` (exit 0) or fails, then shuts the session down
+(see [scripts.md](scripts.md)).

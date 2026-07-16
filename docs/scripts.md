@@ -16,8 +16,9 @@ functions **inside `install.sh`**, not separate scripts.
 | `package-wine-release.sh` | runtime | Build the runtime + source release archives from a completed build. |
 | `install-dependencies.sh` | deps | Distro package detection / check / print / install (runtime & build profiles). |
 | `ableton-profile.sh` | ableton | Identify Live 11/12 + edition; resolve the Live executable in a folder or prefix. |
-| `configure-prefix.sh` | prefix | Enable host drives and the native folder picker. |
-| `set-dpi.sh` | prefix | Write the Wine DPI (`LogPixels`). |
+| `configure-prefix.sh` | prefix | Host drives, folder picker, Push 2 bridge, WineASIO registration, DPI policy. |
+| `detect-scale.sh` | prefix | Sourceable primary-monitor display-scale detection (GNOME/KDE/sway/Hyprland/Xft.dpi). |
+| `set-dpi.sh` | prefix | Write the Wine DPI (`LogPixels`) and keep per-monitor awareness in step. |
 | `install-webview-font.sh` | prefix | Generate + register the Learn View Arial fallback (Live 12). |
 | `make-webview-fallback-font.py` | prefix | fontTools tool that builds/verifies the fallback. |
 | `install-desktop.sh` | prefix | Render and install the application-menu entry. |
@@ -27,6 +28,8 @@ functions **inside `install.sh`**, not separate scripts.
 | `load-runtime-config.sh` | helper | Safely parse `.encore/runtime.conf` (no `eval`). |
 | `process-is-running.sh` | helper | True if a given executable path is running. |
 | `offer-github-star.sh` | helper | Optional end-of-install GitHub star prompt. |
+| `check-live-audio.sh` | maint | Launch Live and verify the WineASIO driver opens cleanly. |
+| `uninstall.sh` | maint | Remove ENCORE's installed artifacts (menu entry; optionally prefix and build). |
 
 ## Runtime
 
@@ -90,13 +93,42 @@ so both agree on which Live (11/12, any edition) a prefix holds.
 ## Prefix configuration
 
 ### `configure-prefix.sh`
-Symlinks a free Wine drive letter (e.g. `Z:`) to `/` and sets
-`FileDialogPortal=always` under the imported Live executable's AppDefaults
-`X11 Driver` key. Refuses to run while Live is open. See
-[portal-file-picker.md](patches/portal-file-picker.md).
+Configures everything Live relies on inside the prefix. Refuses to run while
+Live is open. In order:
+
+- symlinks a free Wine drive letter (e.g. `Z:`) to `/` and sets
+  `FileDialogPortal=always` under the imported Live executable's AppDefaults
+  `X11 Driver` key ([portal-file-picker.md](patches/portal-file-picker.md));
+- scopes the Push 2 display helper to ENCORE's builtin `libusb-1.0` bridge — a
+  per-app DllOverride for `Push2DisplayProcess.exe`
+  ([push2-display.md](patches/push2-display.md));
+- registers WineASIO when it has been built (PE half into `system32`,
+  `regsvr32` of the Unix half — [wineasio.md](wineasio.md));
+- applies the display-scale **DPI policy** (`ENCORE_DPI_MODE`, default `auto`):
+  detects the primary monitor's scale via `detect-scale.sh` and applies the
+  calibrated block — `100` (LogPixels 96, awareness off) or `hidpi`
+  (LogPixels 192, IFEO `dpiAwareness=2`). Uncalibrated scales and prefixes with
+  custom values are preserved. The installer runs this stage with
+  `ENCORE_DPI_MODE=preserve` because its own display-scaling stage follows.
+
+### `detect-scale.sh`
+Sourceable (no side effects): `encore_detect_scale` prints the primary
+monitor's scale factor (`1`, `1.25`, `2`, …) or returns 1 when nothing answers.
+Probes, in order: GNOME (Mutter `DisplayConfig` over D-Bus), KDE
+(`kscreen-doctor`), sway, Hyprland, then the `Xft.dpi` X resource ÷ 96. On
+mixed-scale multi-monitor setups it uses the primary monitor and says so on
+stderr. Ported from shibco/ableton-linux.
 
 ### `set-dpi.sh`
-Validates the DPI (72–384) and writes `HKCU\Control Panel\Desktop` `LogPixels`.
+Validates the DPI (72–384), writes `HKCU\Control Panel\Desktop` `LogPixels`,
+and keeps **per-monitor awareness** in step: above 96 it sets the Live
+executable's Image File Execution Options `dpiAwareness=2` (Live then reads the
+monitor DPI from the X server); at 96 it removes the key. The matched-set is
+what the windowing patches make safe — see
+[windowing-and-hidpi.md](patches/windowing-and-hidpi.md) and
+[windowing-nspa.md](patches/windowing-nspa.md). Refuses to run while Live is
+open; kill the prefix's `wineserver` after changing the X server's DPI, or the
+old value stays cached.
 
 ### `install-webview-font.sh` + `make-webview-fallback-font.py`
 Live 12 only. The Learn View's Chromium needs a real "Arial" family. The Python
@@ -121,13 +153,35 @@ Loads `runtime.conf`, resolves the Live executable via `ableton-profile.sh`,
 picks the Wine binary (`runtime/wine/bin/wine`, falling back to
 `build/wine64/wine`), assembles the WebView2 flags and CPU topology, exports the
 full runtime environment (see [environment.md](environment.md)), and execs Wine.
-`ENCORE_DRY_RUN=1` prints the computed environment and exits.
+It also self-heals Live's `Options.txt` to force the GDI backend
+(`-_ForceGdiBackend`; opt out with `ENCORE_LIVE_GPU=1`) and, when WineASIO is
+present, starts one background `jacklinkd`. `ENCORE_DRY_RUN=1` prints the
+computed environment and exits.
 
 ### `select-cpu-topology.sh`
 Computes `WINE_CPU_TOPOLOGY` from the allowed CPU set (`Cpus_allowed_list`):
 `8` when more than eight CPUs are allowed; the supported count for sparse/limited
 sets; nothing when the default dense set is already ≤ 8. Pairs with
 [cpu-and-threads.md](patches/cpu-and-threads.md).
+
+## Maintenance and diagnostics
+
+### `check-live-audio.sh`
+Post-install smoke test for low-latency audio: launches Live via
+`launch-ableton.sh`, watches the newest Live `Log.txt` for `Open: finished`
+(pass), `FatalError`/`Uncaught exception` (fail — ASE_NoClock on a sample-rate
+mismatch is the classic cause), or process exit, then shuts down the wineserver
+it started. Exit 0 = the driver opened cleanly. `ENCORE_CHECK_TIMEOUT` (default
+180s) bounds the wait. Needs a desktop session and an installed Live.
+
+### `uninstall.sh`
+Removes what ENCORE installed. By default only the application-menu entry — the
+single file ENCORE writes outside the project directory. `--prefix` also
+removes the Wine prefix (your Live install **and its authorization**, with
+confirmation) plus any winemenubuilder `.desktop` shortcuts pointing into it;
+`--build` removes the built Wine/WineASIO for a clean rebuild; `--all` does
+both; `-y` skips prompts. To remove ENCORE entirely, delete the project
+directory afterwards.
 
 ## Helpers
 
