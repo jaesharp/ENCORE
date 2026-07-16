@@ -1,0 +1,70 @@
+ENCORE Wine patch -- report the drawable's real visual in set_dc_drawable (winex11)
+
+Ported from shibco/ableton-linux patches/0026 (shibco / shibacomputer,
+cade@parare.al) -- a fix to LGPL-2.1+ Wine's winex11. Regenerated against
+wine-11.13; behaviour unchanged.
+
+When a window's X drawable uses a different visual than the default (notably
+depth-32 ARGB visuals on plugin-editor top-levels), set_dc_drawable() still
+reported the default visual. GL contexts created against such a DC then
+BadMatch and crash the host process when a plugin editor opens. Track and
+report the drawable's actual visual so GLX/EGL pick a matching config.
+Complements patches/wine/90-opengl-srgb.patch for GL plugin editors.
+Upstream-PR candidate.
+See shibco notes/ABLETON-WINE-GL-PLUGIN-EDITOR-CRASH-BUG.md.
+
+diff --git a/dlls/winex11.drv/init.c b/dlls/winex11.drv/init.c
+index 754349f689..f206b05e4a 100644
+--- a/dlls/winex11.drv/init.c
++++ b/dlls/winex11.drv/init.c
+@@ -237,6 +237,30 @@ void set_dc_drawable( HDC hdc, Drawable drawable, const RECT *rect, int mode )
+         .dc_rect = *rect,
+         .mode = mode,
+     };
++    XWindowAttributes attr;
++
++    /* Report the drawable's visual so xrenderdrv_ExtEscape can pick an XRender
++     * pict format matching the drawable's depth. Without it, the DC keeps its
++     * previous format (a display DC opened via NtGdiOpenDCW starts on the depth-24
++     * root format); when the new drawable has a different depth - e.g. a depth-32
++     * layered top-level window that hosts an OpenGL plugin editor (Chow Tape Model)
++     * being presented via X11DRV_client_surface_present - XRenderCreatePicture then
++     * fails with BadMatch, a fatal X error that takes the whole host down.
++     * XGetWindowAttributes fails for non-window drawables such as GLX pbuffers;
++     * leave the visual zeroed ("keep current format") in that case. */
++    if (XGetWindowAttributes( gdi_display, drawable, &attr ) && attr.class != InputOnly)
++    {
++        escape.visual.visual        = attr.visual;
++        escape.visual.visualid      = XVisualIDFromVisual( attr.visual );
++        escape.visual.screen        = XScreenNumberOfScreen( attr.screen );
++        escape.visual.depth         = attr.depth;
++        escape.visual.class         = attr.visual->class;
++        escape.visual.red_mask      = attr.visual->red_mask;
++        escape.visual.green_mask    = attr.visual->green_mask;
++        escape.visual.blue_mask     = attr.visual->blue_mask;
++        escape.visual.colormap_size = attr.visual->map_entries;
++        escape.visual.bits_per_rgb  = attr.visual->bits_per_rgb;
++    }
+     NtGdiExtEscape( hdc, NULL, 0, X11DRV_ESCAPE, sizeof(escape), (LPSTR)&escape, 0, NULL );
+ }
+ 
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index 202260080a..14553f172c 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -3081,6 +3081,15 @@ void X11DRV_ReleaseDC( HWND hwnd, HDC hdc )
+     escape.mode = IncludeInferiors;
+     escape.dc_rect = NtUserGetVirtualScreenRect( MDT_DEFAULT );
+     OffsetRect( &escape.dc_rect, -2 * escape.dc_rect.left, -2 * escape.dc_rect.top );
++    /* The DC is parked on the root window, which uses the default visual. Set it
++     * explicitly: escape.visual is otherwise left uninitialized (stack garbage),
++     * and xrenderdrv_ExtEscape treats a non-NULL visual->visual as a real visual
++     * to match. When the garbage matches no XRender format it keeps the physdev's
++     * previous (possibly 32-bit) format instead of resetting to the root's depth-24
++     * format, and the next XRenderCreatePicture on the root drawable fails with
++     * BadMatch (fatal X error). Seen taking down the host when a JUCE/OpenGL plugin
++     * editor (e.g. Chow Tape Model) was opened at high DPI. */
++    escape.visual = default_visual;
+     NtGdiExtEscape( hdc, NULL, 0, X11DRV_ESCAPE, sizeof(escape), (LPSTR)&escape, 0, NULL );
+ }
+ 

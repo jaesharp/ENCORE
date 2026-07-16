@@ -1,0 +1,137 @@
+ENCORE Wine patch -- present/resize client rects in the window's DPI context (wined3d + dxgi)
+
+Ported from shibco/ableton-linux patches/0023 + 0024 (shibco / shibacomputer,
+cade@parare.al) -- fixes to LGPL-2.1+ Wine. Regenerated against wine-11.13;
+behaviour unchanged.
+
+wined3d and dxgi queried present/resize client rects in the calling thread's
+DPI context rather than the target window's. In a mixed-DPI process (Live
+runs per-monitor-aware windows next to DPI-unaware plugin/CEF threads, so any
+LogPixels > 96 setup qualifies) the rect comes back in the wrong space and
+presents/resizes are mis-sized. Query in the window's own DPI context, and
+keep the new diagnostics at trace level (0024).
+Directly relevant to ENCORE's 125%+ display-scale support.
+
+diff --git a/dlls/dxgi/swapchain.c b/dlls/dxgi/swapchain.c
+index eee4a2a42b..dfa63b6a6d 100644
+--- a/dlls/dxgi/swapchain.c
++++ b/dlls/dxgi/swapchain.c
+@@ -2626,8 +2626,17 @@ static HRESULT d3d12_swapchain_resize_buffers(struct d3d12_swapchain *swapchain,
+     if (!width || !height)
+     {
+         RECT client_rect;
+-
+-        if (!GetClientRect(swapchain->window, &client_rect))
++        BOOL ret;
++
++        /* Swapchain buffers are sized in the window's physical pixels; map the
++         * client rect through the window's DPI context, not the caller's (a
++         * DPI-unaware ResizeBuffers(0, 0) would otherwise halve the buffers
++         * under a per-monitor-aware window). */
++        DPI_AWARENESS_CONTEXT prev = SetThreadDpiAwarenessContext(
++                GetWindowDpiAwarenessContext(swapchain->window));
++        ret = GetClientRect(swapchain->window, &client_rect);
++        SetThreadDpiAwarenessContext(prev);
++        if (!ret)
+         {
+             WARN("Failed to get client rect, last error %#lx.\n", GetLastError());
+             return DXGI_ERROR_INVALID_CALL;
+diff --git a/dlls/wined3d/swapchain.c b/dlls/wined3d/swapchain.c
+index 06451c93d6..b47908c832 100644
+--- a/dlls/wined3d/swapchain.c
++++ b/dlls/wined3d/swapchain.c
+@@ -247,10 +247,48 @@ HRESULT CDECL wined3d_swapchain_present(struct wined3d_swapchain *swapchain,
+         if (!desc->windowed)
+             SetRect(&d, 0, 0, desc->backbuffer_width, desc->backbuffer_height);
+         else
++        {
++            /* DXGI/D3D presents address the window's physical pixels: the
++             * surface the blit lands in is at the window's own DPI, never the
++             * calling thread's. Querying the client rect in the caller's DPI
++             * context shrinks/grows the destination when the thread and window
++             * contexts disagree (JUCE editors flip thread contexts per call —
++             * a DPI-unaware Present into a per-monitor window halved the rect
++             * and squeezed the frame into the top-left quarter). */
++            DPI_AWARENESS_CONTEXT prev = SetThreadDpiAwarenessContext(
++                    GetWindowDpiAwarenessContext(swapchain->win_handle));
+             GetClientRect(swapchain->win_handle, &d);
++            SetThreadDpiAwarenessContext(prev);
++        }
+         dst_rect = &d;
+     }
+ 
++    /* DPI-ghost diagnosis: log the caller's DPI context, the resolved dst
++     * rect and the backbuffer size; rate-limited to the first few presents
++     * plus any change (a flip-flopping thread context / dst size is the
++     * Pianoteq half-size ghost signature). */
++    {
++        static LONG dbg_count;
++        static LONG last_w, last_h, last_ctx, last_bb_w, last_bb_h;
++        LONG w = dst_rect->right - dst_rect->left, h = dst_rect->bottom - dst_rect->top;
++        LONG ctx = (LONG)(LONG_PTR)GetThreadDpiAwarenessContext();
++        LONG n = InterlockedIncrement(&dbg_count);
++
++        if (n <= 5 || w != last_w || h != last_h || ctx != last_ctx
++                || (LONG)desc->backbuffer_width != last_bb_w
++                || (LONG)desc->backbuffer_height != last_bb_h)
++        {
++            static LONG dbg_changes;
++            LONG c = InterlockedIncrement(&dbg_changes);
++            if (c <= 500 || !(c % 100))
++                TRACE("PRESENT-DBG #%ld: swapchain %p win %p thread_ctx %#lx dst %s buffer %ux%u.\n",
++                        n, swapchain, swapchain->win_handle, ctx, wine_dbgstr_rect(dst_rect),
++                        desc->backbuffer_width, desc->backbuffer_height);
++        }
++        last_w = w; last_h = h; last_ctx = ctx;
++        last_bb_w = desc->backbuffer_width; last_bb_h = desc->backbuffer_height;
++    }
++
+     wined3d_cs_emit_present(swapchain->device->cs, swapchain, src_rect,
+             dst_rect, dst_window_override, swap_interval, flags);
+ 
+@@ -1485,7 +1523,12 @@ static HRESULT wined3d_swapchain_state_init(struct wined3d_swapchain_state *stat
+     {
+         RECT client_rect;
+ 
++        /* As in wined3d_swapchain_resize_buffers: auto-sized buffers follow
++         * the window's physical client size, not the caller's DPI view. */
++        DPI_AWARENESS_CONTEXT prev = SetThreadDpiAwarenessContext(
++                GetWindowDpiAwarenessContext(window));
+         GetClientRect(window, &client_rect);
++        SetThreadDpiAwarenessContext(prev);
+         TRACE("Client rect %s.\n", wine_dbgstr_rect(&client_rect));
+ 
+         if (!state->desc.backbuffer_width)
+@@ -2053,9 +2096,14 @@ HRESULT CDECL wined3d_swapchain_resize_buffers(struct wined3d_swapchain *swapcha
+ 
+         /* The application is requesting that either the swapchain width or
+          * height be set to the corresponding dimension in the window's
+-         * client rect. */
+-
+-        if (!GetClientRect(swapchain->state.device_window, &client_rect))
++         * client rect. Buffers are sized in the window's physical pixels —
++         * query the rect in the window's DPI context, not the caller's. */
++        DPI_AWARENESS_CONTEXT prev = SetThreadDpiAwarenessContext(
++                GetWindowDpiAwarenessContext(swapchain->state.device_window));
++        BOOL ret = GetClientRect(swapchain->state.device_window, &client_rect);
++        SetThreadDpiAwarenessContext(prev);
++
++        if (!ret)
+         {
+             ERR("Failed to get client rect, last error %#lx.\n", GetLastError());
+             return WINED3DERR_INVALIDCALL;
+@@ -2068,6 +2116,14 @@ HRESULT CDECL wined3d_swapchain_resize_buffers(struct wined3d_swapchain *swapcha
+             height = client_rect.bottom;
+     }
+ 
++    /* DPI-ghost diagnosis: JUCE computes explicit resize dimensions from its
++     * own (possibly DPI-virtualized) view of the window — log what it asked
++     * for together with its thread context. */
++    TRACE("RESIZE-DBG: swapchain %p win %p thread_ctx %#lx %ux%u -> %ux%u.\n",
++            swapchain, swapchain->state.device_window,
++            (LONG)(LONG_PTR)GetThreadDpiAwarenessContext(),
++            desc->backbuffer_width, desc->backbuffer_height, width, height);
++
+     if (width != desc->backbuffer_width || height != desc->backbuffer_height)
+     {
+         desc->backbuffer_width = width;
