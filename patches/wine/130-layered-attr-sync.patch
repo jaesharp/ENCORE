@@ -1,0 +1,39 @@
+ENCORE Wine patch -- sync layered attributes to the scaled surface (win32u)
+
+Ported from shibco/ableton-linux patches/0015 (shibco / shibacomputer,
+cade@parare.al) -- a fix to LGPL-2.1+ Wine's win32u. Regenerated against
+wine-11.13; behaviour unchanged.
+
+scaled_surface_flush() forwarded color_key/alpha_bits/alpha_mask to the
+target x11 surface only on shape changes. Layered windows with no shape --
+e.g. JUCE DropShadower soft-shadow windows around plugin popups -- never get
+their per-pixel alpha across, and x11drv_surface_flush() ORs 0xff000000 into
+every pixel, turning premultiplied mostly-transparent black into opaque black
+rectangles. Sync the layered attributes on every flush (a no-op when they are
+unchanged). Upstream-PR candidate.
+See shibco notes/ABLETON-WINE-PLUGIN-TITLEBAR-BUG.md.
+
+diff --git a/dlls/win32u/dce.c b/dlls/win32u/dce.c
+index 5e8d82aed3..ba845df5c0 100644
+--- a/dlls/win32u/dce.c
++++ b/dlls/win32u/dce.c
+@@ -201,11 +201,16 @@ static BOOL scaled_surface_flush( struct window_surface *window_surface, const R
+         HRGN hrgn = map_dpi_region( window_surface->shape_region, surface->dpi_from, surface->dpi_to );
+         window_surface_set_shape( surface->target_surface, hrgn );
+         if (hrgn) NtGdiDeleteObjectApp( hrgn );
+-
+-        window_surface_set_layered( surface->target_surface, window_surface->color_key,
+-                                    window_surface->alpha_bits, window_surface->alpha_mask );
+     }
+ 
++    /* Keep the target surface's layered attributes in sync on every flush, not only on
++     * shape changes: layered windows without a shape (e.g. JUCE popup-menu drop-shadow
++     * windows, per-pixel alpha via UpdateLayeredWindow) otherwise never propagate
++     * alpha_mask to the driver surface, which then composites them as opaque black.
++     * window_surface_set_layered only invalidates the target when a value changed. */
++    window_surface_set_layered( surface->target_surface, window_surface->color_key,
++                                window_surface->alpha_bits, window_surface->alpha_mask );
++
+     window_surface_flush( surface->target_surface );
+     return TRUE;
+ }
