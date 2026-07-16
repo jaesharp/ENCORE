@@ -52,6 +52,36 @@ function. The custom-NC gate belongs in `get_mwm_decorations`, which patch `30`
 already rewrites — so the gate is folded there, and this patch carries only the
 `set_window_pos` suppression (disjoint functions, same file).
 
+## Saga pieces evaluated and not carried
+
+The rest of shibco's NSPA windowing series was evaluated against this base
+(wine-11.13 + the ENCORE series) and dropped, each for cause:
+
+- **Frame-extents reconstruction** (their 0003: `pGetFrameExtents`,
+  `_NET_FRAME_EXTENTS` tracking, `window_rect_from_visible_state`) — a no-op
+  here: shibco's own 0006 disables the reconstruction, and this base never had
+  the bug it addressed.
+- **`get_visible_rect` custom-NC early-return** (their 0005) — already
+  upstream: wine-11.13's `get_visible_rect` returns `rects->window` when
+  `client == window`. shibco's 0002 had removed that line in their tree; 0005
+  restored it. No gap on this base.
+- **`calc_ncsize` default-NC guard** (their 0003: override an app's
+  `WM_NCCALCSIZE` reply with `DefWindowProc`'s when a menu'd, decorated window
+  temporarily reports `client == window`) — its motivating symptom (+4px
+  growth per WM configure) does not reproduce here: WM-driven moveresizes
+  settle in one event plus a 1px rounding follow-up, and idle geometry is
+  flat. Porting it would also risk fighting Live's *legitimate* custom-NC
+  state — the exact condition patch `30`'s decoration gate keys on.
+- **`invalidate_exposed_client_area`** (their 0003: repaint the client region
+  exposed by a resize) — verified unnecessary: a WM-driven grow of
+  +1000×+614 px repaints pixel-clean under the GDI backend.
+- **VST3 plugin-editor titlebar** (their 0014) — covered by ENCORE's own
+  `ENCORE_NATIVE_VST3_DECORATIONS` (see
+  [windowing-and-hidpi.md](windowing-and-hidpi.md)).
+
+Re-evaluate these only if the named symptom actually appears; each is listed
+with its trigger so a report can be matched against it.
+
 ## Runtime toggles
 
 None. The suppression is inert unless an application actually re-enters
