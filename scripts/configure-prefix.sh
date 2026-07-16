@@ -5,6 +5,7 @@ set -eu
 
 . "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/common.sh"
 . "$SCRIPT_DIR/ableton-profile.sh"
+. "$SCRIPT_DIR/detect-scale.sh"
 
 ableton_binary=$(encore_resolve_ableton_executable \
     "$ENCORE_PREFIX" "${ENCORE_ABLETON-}") || exit 1
@@ -80,3 +81,124 @@ if [ -f "$wineasio_root/wineasio64.dll" ] && [ -f "$wineasio_root/wineasio64.dll
         say "  note: WineASIO registration did not complete; check host libjack and re-run configure-prefix.sh"
     fi
 fi
+
+# High-DPI policy. Live becomes per-monitor-DPI-aware only when its Image File
+# Execution Options carry dpiAwareness=2; Wine's win32u then reads the real
+# monitor DPI from the X server rather than the registry LogPixels. The patched
+# windowing (patches/wine/30-windowing-and-hidpi.patch + 31-windowing-nspa.patch)
+# is what makes that key safe -- without it Live dies before showing a window.
+#
+# Two calibrated blocks, keyed off the detected display scale:
+#   100    -> LogPixels 96,  no dpiAwareness   (100% / unscaled)
+#   hidpi  -> LogPixels 192, dpiAwareness=2     (true 2x, and fractional scaling
+#            via a compositor that renders Xwayland at native 2x then downscales)
+# ENCORE_DPI_MODE selects the policy: auto (detect, default), preserve, 100, hidpi.
+# The scale->block map is deliberately conservative (only calibrated scales apply
+# automatically); everything else is left to an explicit ENCORE_DPI_MODE.
+dpi_mode=${ENCORE_DPI_MODE:-auto}
+ifeo_key="HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\$ENCORE_ABLETON_EXE"
+
+encore_reg()
+{
+    WINEPREFIX="$ENCORE_PREFIX" WINEDEBUG=-all "$WINE_BINARY" reg.exe "$@" >/dev/null 2>&1
+}
+
+encore_current_dpi_block()
+{
+    _cdb_lp=$(WINEPREFIX="$ENCORE_PREFIX" WINEDEBUG=-all "$WINE_BINARY" reg.exe query \
+        'HKCU\Control Panel\Desktop' /v LogPixels 2>/dev/null \
+        | awk '$1=="LogPixels"{gsub(/\r/,"",$3); print tolower($3)}')
+    [ -n "$_cdb_lp" ] || _cdb_lp=0x60          # wineboot default is 96 dpi
+    if encore_reg query "$ifeo_key" /v dpiAwareness; then _cdb_ifeo=present; else _cdb_ifeo=absent; fi
+    if [ "$_cdb_lp" = 0x60 ] && [ "$_cdb_ifeo" = absent ]; then
+        printf '100\n'
+    elif [ "$_cdb_lp" = 0xc0 ] && [ "$_cdb_ifeo" = present ]; then
+        printf 'hidpi\n'
+    else
+        printf 'custom\n'
+    fi
+}
+
+encore_apply_dpi_block()        # $1 = 100 | hidpi
+{
+    case $1 in
+        100)
+            encore_reg add 'HKCU\Control Panel\Desktop' /v LogPixels /t REG_DWORD /d 96 /f
+            encore_reg delete "$ifeo_key" /v dpiAwareness /f || true
+            say "DPI: 100% (LogPixels 96, per-monitor awareness off)"
+            ;;
+        hidpi)
+            encore_reg add 'HKCU\Control Panel\Desktop' /v LogPixels /t REG_DWORD /d 192 /f
+            encore_reg add "$ifeo_key" /v dpiAwareness /t REG_DWORD /d 2 /f
+            say "DPI: HiDPI (LogPixels 192, dpiAwareness=2 for $ENCORE_ABLETON_EXE)"
+            ;;
+    esac
+}
+
+encore_block_for_scale()        # $1 = scale -> calibrated block name, or empty
+{
+    case $1 in
+        1)                    printf '100\n' ;;
+        1.25|1.5|1.75|2)      printf 'hidpi\n' ;;
+        *)                    printf '\n' ;;
+    esac
+}
+
+encore_check_mutter_knob()      # $1 = block, $2 = scale (optional)
+{
+    command -v gsettings >/dev/null 2>&1 || return 0
+    _cmk_feats=$(gsettings get org.gnome.mutter experimental-features 2>/dev/null) || return 0
+    case $1 in
+        hidpi)
+            # Only fractional scales rely on xwayland-native-scaling; integer 2x is native.
+            case ${2:-} in
+                *.*)
+                    case $_cmk_feats in
+                        *xwayland-native-scaling*) : ;;
+                        *) say "  note: GNOME fractional scaling needs 'xwayland-native-scaling' in org.gnome.mutter experimental-features for Live to render crisply" ;;
+                    esac
+                    ;;
+            esac
+            ;;
+        100)
+            case $_cmk_feats in
+                *xwayland-native-scaling*) say "  note: GNOME lists 'xwayland-native-scaling'; the 100% DPI block does not expect it" ;;
+            esac
+            ;;
+    esac
+    return 0
+}
+
+case $dpi_mode in
+    100|hidpi)
+        encore_apply_dpi_block "$dpi_mode"
+        encore_check_mutter_knob "$dpi_mode"
+        ;;
+    preserve)
+        say "DPI: preserving the prefix's current LogPixels/dpiAwareness (ENCORE_DPI_MODE=preserve)"
+        ;;
+    auto)
+        if dpi_scale=$(encore_detect_scale); then
+            dpi_block=$(encore_block_for_scale "$dpi_scale")
+            if [ -z "$dpi_block" ]; then
+                say "DPI: display scale $dpi_scale has no calibrated block (100% and HiDPI are) -- preserving; set ENCORE_DPI_MODE=100 or hidpi to force"
+            else
+                dpi_have=$(encore_current_dpi_block)
+                if [ "$dpi_have" = "$dpi_block" ]; then
+                    say "DPI: display scale $dpi_scale -> '$dpi_block' block already set"
+                elif [ "$dpi_have" = custom ]; then
+                    say "DPI: display scale $dpi_scale wants '$dpi_block', but the prefix holds custom LogPixels/dpiAwareness -- preserving; set ENCORE_DPI_MODE=$dpi_block to override"
+                else
+                    say "DPI: display scale $dpi_scale -> applying '$dpi_block' block (was '$dpi_have')"
+                    encore_apply_dpi_block "$dpi_block"
+                    encore_check_mutter_knob "$dpi_block" "$dpi_scale"
+                fi
+            fi
+        else
+            say "DPI: could not detect the display scale (headless or unknown compositor) -- preserving current values; set ENCORE_DPI_MODE=100 or hidpi to force"
+        fi
+        ;;
+    *)
+        die "ENCORE_DPI_MODE must be auto, preserve, 100, or hidpi (got: $dpi_mode)"
+        ;;
+esac
