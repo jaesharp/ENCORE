@@ -79,6 +79,21 @@ else
 fi
 export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="$webview_arguments"
 
+# Force Live's GDI backend. Live's own GPU/GL renderer misrenders the session
+# view under Wine -- black content regions plus a CPU spin on software GL (llvmpipe
+# under a GPU-less display). Ableton reads -_ForceGdiBackend from Options.txt in its
+# versioned Preferences directory, which Live creates on first run; ensure the flag
+# in every one that exists (idempotent and self-healing across Live updates). Set
+# ENCORE_LIVE_GPU=1 to opt out. Documented by shibco (ABLETON-WINE-RESIZE-BUG).
+if [ "${ENCORE_LIVE_GPU:-0}" != 1 ]; then
+    for _encore_pref in "$PREFIX"/drive_c/users/*/AppData/Roaming/Ableton/"Live "*/Preferences; do
+        [ -d "$_encore_pref" ] || continue
+        if ! grep -qx -- '-_ForceGdiBackend' "$_encore_pref/Options.txt" 2>/dev/null; then
+            printf -- '-_ForceGdiBackend\n' >> "$_encore_pref/Options.txt"
+        fi
+    done
+fi
+
 if [ "$wineasio_enabled" = 1 ]; then
     export WINEDLLPATH
     export WINEASIO_NUMBER_INPUTS="${WINEASIO_NUMBER_INPUTS:-2}"

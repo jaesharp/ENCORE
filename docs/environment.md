@@ -39,6 +39,7 @@ the patch. Unchanged from earlier ENCORE.
 | `ENCORE_CPU_TOPOLOGY` | *(computed)* | scripts → `WINE_CPU_TOPOLOGY` | Overrides the CPU topology; else `WINE_CPU_TOPOLOGY`, else `select-cpu-topology.sh`. See [cpu-and-threads.md](patches/cpu-and-threads.md). |
 | `ENCORE_WEBVIEW2_FLAGS` | see below | scripts → `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` | Complete override of the launcher's WebView2/Chromium flags; empty disables them. |
 | `ENCORE_DRY_RUN` | `0` | scripts | `1` prints the full computed environment and exits without launching. |
+| `ENCORE_LIVE_GPU` | `0` | launcher | `1` opts out of forcing Live's GDI backend (leaves `Options.txt`'s `-_ForceGdiBackend` unset). Default `0` forces GDI, because Live's GPU/GL renderer misrenders the session view under Wine. |
 
 Default `ENCORE_WEBVIEW2_FLAGS`:
 
